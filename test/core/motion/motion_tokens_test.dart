@@ -40,12 +40,38 @@ void main() {
         expect(spring.settle, lessThan(const Duration(seconds: 1)));
       }
     });
+
+    test("pageSnap settles faster than Flutter's page spring, never past "
+        'the edge', () {
+      final pageSnap = profile(MotionSprings.pageSnap);
+      // PageScrollPhysics' default spring.
+      final flutterDefault = profile(
+        SpringDescription.withDampingRatio(
+          mass: 0.5,
+          stiffness: 100,
+          ratio: 1.1,
+        ),
+      );
+
+      expect(pageSnap.peak, lessThanOrEqualTo(1 + 1e-6));
+      expect(pageSnap.settle, lessThan(flutterDefault.settle));
+    });
   });
 
-  test('a CTA sweep finishes before the next one starts', () {
-    expect(
-      MotionDurations.ctaShimmerSweep,
-      lessThan(MotionDurations.ctaShimmerInterval),
-    );
+  group('MotionDurations', () {
+    test('a CTA sweep finishes before the next one starts', () {
+      expect(
+        MotionDurations.ctaShimmerSweep,
+        lessThan(MotionDurations.ctaShimmerInterval),
+      );
+    });
+
+    test('the skeleton waits, then holds long enough not to blink', () {
+      expect(MotionDurations.skeletonDelay, const Duration(milliseconds: 150));
+      expect(
+        MotionDurations.skeletonMinimum,
+        greaterThan(MotionDurations.fast),
+      );
+    });
   });
 }

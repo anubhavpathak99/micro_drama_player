@@ -11,7 +11,7 @@ import 'package:flutter/animation.dart';
 /// (no overshoot) towards 1 (springier).
 abstract final class MotionSprings {
   /// Quick, with no visible overshoot. For controls that track a finger: the
-  /// expanding scrub bar, the time bubble, page settling.
+  /// expanding scrub bar, the time bubble, the play/pause glyph leaving.
   static final SpringDescription snappy =
       SpringDescription.withDurationAndBounce(
         duration: const Duration(milliseconds: 300),
@@ -30,6 +30,14 @@ abstract final class MotionSprings {
   static final SpringDescription gentle =
       SpringDescription.withDurationAndBounce(
         duration: const Duration(milliseconds: 600),
+      );
+
+  /// Feed page settling after a swipe. Stiffer than Flutter's default page
+  /// spring and critically damped, so a page lands fast and never peeks past
+  /// its edge.
+  static final SpringDescription pageSnap =
+      SpringDescription.withDurationAndBounce(
+        duration: const Duration(milliseconds: 280),
       );
 }
 
@@ -73,6 +81,14 @@ abstract final class MotionDurations {
 
   /// One pass of the skeleton shimmer.
   static const Duration skeletonShimmer = Duration(milliseconds: 1400);
+
+  /// How long a wait must last before the skeleton appears. Shorter waits
+  /// show nothing, so the skeleton never flashes.
+  static const Duration skeletonDelay = Duration(milliseconds: 150);
+
+  /// Once shown, the skeleton stays at least this long, so a wait that ends
+  /// just after it appeared doesn't blink.
+  static const Duration skeletonMinimum = Duration(milliseconds: 300);
 
   /// One sweep of the highlight across the Unlock button.
   static const Duration ctaShimmerSweep = Duration(milliseconds: 900);

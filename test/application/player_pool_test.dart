@@ -1,0 +1,319 @@
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:micro_drama_interactive_player/application/feed_controller.dart';
+import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
+import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/data/episode_repository.dart';
+import 'package:micro_drama_interactive_player/data/video_cache.dart';
+import 'package:micro_drama_interactive_player/data/video_controller_factory.dart';
+import 'package:micro_drama_interactive_player/domain/unlock_state.dart';
+
+import '../support/episode_fixtures.dart';
+import '../support/fake_video.dart';
+
+/// Lets a test unlock an episode, which the real paywall can't do yet.
+class TestPaywall extends PaywallController {
+  void unlock(String episodeId) => state = PaywallState(
+    unlocks: {...state.unlocks, episodeId: UnlockState.unlocked},
+  );
+}
+
+/// A container wired to fakes, with the feed loaded and the pool running.
+class PoolHarness {
+  PoolHarness({Set<String> cachedEpisodeIds = const {}})
+    : cache = FakeVideoCache(cachedEpisodeIds: cachedEpisodeIds) {
+    container = ProviderContainer.test(
+      overrides: [
+        episodeRepositoryProvider.overrideWithValue(
+          FakeEpisodeRepository(fakeEpisodes()),
+        ),
+        videoControllerFactoryProvider.overrideWithValue(factory),
+        videoCacheProvider.overrideWithValue(cache),
+        paywallControllerProvider.overrideWith(TestPaywall.new),
+      ],
+    );
+  }
+
+  final FakeVideoControllerFactory factory = FakeVideoControllerFactory();
+  final FakeVideoCache cache;
+  late final ProviderContainer container;
+
+  PlayerPoolState get pool => container.read(playerPoolProvider);
+  PlayerPool get players => container.read(playerPoolProvider.notifier);
+  TestPaywall get paywall =>
+      container.read(paywallControllerProvider.notifier) as TestPaywall;
+  List<String> get ids => [
+    for (final item in container.read(feedControllerProvider).value!.items)
+      item.id,
+  ];
+
+  Future<void> start() async {
+    await container.read(feedControllerProvider.future);
+    container.listen(playerPoolProvider, (_, _) {});
+    await settle();
+  }
+
+  Future<void> goTo(String id) async {
+    container.read(feedControllerProvider.notifier).setCurrent(id);
+    await settle();
+  }
+}
+
+/// Lets the fakes' async work (cache lookups, initialize, seek) finish.
+Future<void> settle() async {
+  for (var i = 0; i < 20; i++) {
+    await Future<void>.delayed(Duration.zero);
+  }
+}
+
+Future<PoolHarness> started({Set<String> cachedEpisodeIds = const {}}) async {
+  final harness = PoolHarness(cachedEpisodeIds: cachedEpisodeIds);
+  await harness.start();
+  return harness;
+}
+
+void main() {
+  group('PlayerPool window', () {
+    test('plays the first episode and parks the next one', () async {
+      final h = await started();
+
+      expect(h.pool.activeId, 'ep-01');
+      expect(h.pool.slots.keys, ['ep-01', 'ep-02']);
+      final first = h.factory.liveFor('ep-01')!;
+      final next = h.factory.liveFor('ep-02')!;
+      expect(first.value.isPlaying, isTrue);
+      expect(first.value.isLooping, isTrue);
+      expect(next.value.isPlaying, isFalse);
+      expect(
+        next.commands,
+        containsAllInOrder(['initialize', 'setLooping true', 'seekTo 0']),
+      );
+    });
+
+    test(
+      'keeps at most three players while walking the feed both ways',
+      () async {
+        final h = await started();
+
+        for (final id in [...h.ids, ...h.ids.reversed]) {
+          await h.goTo(id);
+          expect(
+            h.factory.live.length,
+            lessThanOrEqualTo(PlayerPool.maxPlayers),
+            reason: 'on $id',
+          );
+        }
+      },
+    );
+
+    test(
+      'follows the current page and disposes what leaves the window',
+      () async {
+        final h = await started();
+
+        await h.goTo('ep-02');
+        expect(h.pool.slots.keys, unorderedEquals(['ep-01', 'ep-02', 'ep-03']));
+
+        await h.goTo('ep-03'); // The next page is an ad: no player for it.
+        expect(h.pool.slots.keys, unorderedEquals(['ep-02', 'ep-03']));
+        expect(
+          h.factory.createdFor('ep-01').every((c) => c.isDisposed),
+          isTrue,
+        );
+      },
+    );
+
+    test('plays only the current episode', () async {
+      final h = await started();
+
+      await h.goTo('ep-02');
+
+      expect(h.factory.liveFor('ep-02')!.value.isPlaying, isTrue);
+      expect(h.factory.liveFor('ep-01')!.value.isPlaying, isFalse);
+      expect(h.factory.liveFor('ep-03')!.value.isPlaying, isFalse);
+    });
+
+    test('pauses everything on an ad page and preloads both sides', () async {
+      final h = await started();
+
+      await h.goTo('ep-03');
+      await h.goTo('ad-after-3');
+
+      expect(h.pool.activeId, isNull);
+      expect(h.pool.slots.keys, unorderedEquals(['ep-03', 'ep-04']));
+      expect(h.factory.live.where((c) => c.value.isPlaying), isEmpty);
+    });
+  });
+
+  group('PlayerPool paywall', () {
+    test('never creates a controller for a locked episode', () async {
+      final h = await started();
+
+      for (final id in [...h.ids, ...h.ids.reversed]) {
+        await h.goTo(id);
+      }
+
+      expect(h.factory.createdFor('ep-07'), isEmpty);
+    });
+
+    test('preloads nothing past a locked episode', () async {
+      final h = await started();
+
+      await h.goTo('ep-07');
+
+      expect(h.pool.activeId, isNull);
+      expect(h.pool.slots, isEmpty);
+    });
+
+    test('creates and plays the player once the episode unlocks', () async {
+      final h = await started();
+      await h.goTo('ep-07');
+
+      h.paywall.unlock('ep-07');
+      await settle();
+
+      expect(h.pool.activeId, 'ep-07');
+      expect(h.factory.liveFor('ep-07')!.value.isPlaying, isTrue);
+      expect(h.pool.slots.keys, contains('ep-08'));
+    });
+  });
+
+  group('PlayerPool sources', () {
+    test('plays cached videos from disk and streams the rest', () async {
+      final h = await started(cachedEpisodeIds: {'ep-02'});
+
+      expect(h.factory.liveFor('ep-01')!.fromFile, isFalse);
+      expect(h.factory.liveFor('ep-02')!.fromFile, isTrue);
+    });
+
+    test('caches a streamed video once it is ready', () async {
+      final h = await started(cachedEpisodeIds: {'ep-02'});
+
+      expect(h.cache.warmed, [Uri.parse('https://example.com/ep-01.mp4')]);
+    });
+  });
+
+  group('PlayerPool failures', () {
+    test('a failed load becomes PlayerFailed and retry starts over', () async {
+      final h = PoolHarness();
+      h.factory.failing.add('ep-01');
+      await h.start();
+
+      expect(h.pool.slots['ep-01'], isA<PlayerFailed>());
+      expect(h.factory.createdFor('ep-01').single.isDisposed, isTrue);
+
+      h.players.retry('ep-01');
+      await settle();
+
+      expect(h.pool.slots['ep-01'], isA<PlayerReady>());
+      expect(h.factory.liveFor('ep-01')!.value.isPlaying, isTrue);
+    });
+
+    test('a playback error fails the slot and releases the player', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+
+      first.value = first.value.copyWith(errorDescription: 'Decoder lost');
+      expect(h.pool.slots['ep-01'], const PlayerFailed('Decoder lost'));
+
+      await settle();
+      expect(first.isDisposed, isTrue);
+    });
+
+    test('retry ignores a player that has not failed', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+
+      h.players.retry('ep-01');
+      await settle();
+
+      expect(h.factory.liveFor('ep-01'), same(first));
+    });
+  });
+
+  group('PlayerPool playback', () {
+    test('a tap pauses and resumes; a new page plays regardless', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+
+      h.players.togglePlayback('ep-01');
+      await settle();
+      expect(h.pool.userPaused, isTrue);
+      expect(first.value.isPlaying, isFalse);
+
+      h.players.togglePlayback('ep-01');
+      await settle();
+      expect(first.value.isPlaying, isTrue);
+
+      h.players.togglePlayback('ep-01');
+      await h.goTo('ep-02');
+      expect(h.pool.userPaused, isFalse);
+      expect(h.factory.liveFor('ep-02')!.value.isPlaying, isTrue);
+    });
+
+    test('a tap on a page that is not playing changes nothing', () async {
+      final h = await started();
+
+      h.players.togglePlayback('ep-02');
+
+      expect(h.pool.userPaused, isFalse);
+    });
+
+    test('holds playback until every suspend reason has cleared', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+
+      h.players
+        ..suspend(SuspendReason.appInactive)
+        ..suspend(SuspendReason.routeCovered);
+      await settle();
+      expect(h.pool.suspended, isTrue);
+      expect(first.value.isPlaying, isFalse);
+
+      h.players.resume(SuspendReason.appInactive);
+      await settle();
+      expect(first.value.isPlaying, isFalse);
+
+      h.players.resume(SuspendReason.routeCovered);
+      await settle();
+      expect(h.pool.suspended, isFalse);
+      expect(first.value.isPlaying, isTrue);
+    });
+
+    test('resuming keeps a pause the user made', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+
+      h.players
+        ..togglePlayback('ep-01')
+        ..suspend(SuspendReason.appInactive)
+        ..resume(SuspendReason.appInactive);
+      await settle();
+
+      expect(first.value.isPlaying, isFalse);
+    });
+
+    test('rewinds paused neighbours only when asked', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+      first.value = first.value.copyWith(position: const Duration(seconds: 4));
+
+      await h.goTo('ep-02');
+      expect(first.value.position, const Duration(seconds: 4));
+
+      h.players.rewindInactive();
+      await settle();
+      expect(first.value.position, Duration.zero);
+    });
+
+    test('disposing the pool disposes every controller', () async {
+      final h = await started();
+      expect(h.factory.live, isNotEmpty);
+
+      h.container.dispose();
+      await settle();
+
+      expect(h.factory.live, isEmpty);
+    });
+  });
+}

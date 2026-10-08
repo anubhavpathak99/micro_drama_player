@@ -11,6 +11,13 @@ abstract final class AppColors {
   /// Text and icons drawn over video.
   static const Color onMedia = Color(0xFFFFFFFF);
   static const Color onMediaMuted = Color(0xB3FFFFFF);
+
+  /// Skeleton shapes, and the highlight that sweeps across them.
+  static const Color skeleton = Color(0x24FFFFFF);
+  static const Color skeletonHighlight = Color(0x5CFFFFFF);
+
+  /// Dims a poster behind a skeleton or an error message.
+  static const Color scrim = Color(0x80000000);
 }
 
 abstract final class AppTheme {
