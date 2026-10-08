@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/core/analytics/analytics_service.dart';
+import 'package:micro_drama_interactive_player/data/ad_repository.dart';
 import 'package:micro_drama_interactive_player/data/episode_repository.dart';
 import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
@@ -12,6 +14,7 @@ import 'package:micro_drama_interactive_player/presentation/player/episode_page.
 import 'package:micro_drama_interactive_player/presentation/shared/app_route_observer.dart';
 
 import '../../support/episode_fixtures.dart';
+import '../../support/fake_ads.dart';
 import '../../support/fake_unlocks.dart';
 import '../../support/fake_video.dart';
 
@@ -31,6 +34,8 @@ Future<FakePlayerPool> pumpFeed(
           unlocks ?? FakeUnlockRepository(),
         ),
         playerPoolProvider.overrideWith(() => pool),
+        adRepositoryProvider.overrideWithValue(FakeAdRepository()),
+        analyticsProvider.overrideWithValue(FakeAnalytics()),
       ],
       child: MaterialApp(
         navigatorObservers: [appRouteObserver],
@@ -130,6 +135,54 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(state);
     }
     expect(pool.calls.last, 'resume appInactive');
+  });
+
+  group('swipes on a busy main thread', () {
+    // Android under load delivers a swipe as a few samples, 60 ms apart.
+    // 240 px is less than half the 600 px page, so only a fling turns it.
+    Future<void> sparseSwipeUp(
+      WidgetTester tester, {
+      required Duration restBeforeLift,
+    }) async {
+      final gesture = await tester.createGesture();
+      await gesture.down(tester.getCenter(find.byType(PageView)));
+      for (var step = 1; step <= 4; step++) {
+        await gesture.moveBy(
+          const Offset(0, -60),
+          timeStamp: Duration(milliseconds: 60 * step),
+        );
+      }
+      await tester.pump(restBeforeLift);
+      await gesture.up(
+        timeStamp: const Duration(milliseconds: 240) + restBeforeLift,
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+    }
+
+    testWidgets('a quick swipe still turns the page', (tester) async {
+      await pumpFeed(tester);
+
+      await sparseSwipeUp(
+        tester,
+        restBeforeLift: const Duration(milliseconds: 5),
+      );
+
+      expect(currentId(tester), 'ep-02');
+    });
+
+    testWidgets('a swipe that rests before lifting settles back', (
+      tester,
+    ) async {
+      await pumpFeed(tester);
+
+      await sparseSwipeUp(
+        tester,
+        restBeforeLift: const Duration(milliseconds: 120),
+      );
+
+      expect(currentId(tester), 'ep-01');
+    });
   });
 
   group('paywall barrier', () {

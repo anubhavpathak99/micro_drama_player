@@ -4,4 +4,7 @@ import 'package:flutter/services.dart';
 abstract final class Haptics {
   /// A toggle, such as like or save, changed state.
   static Future<void> toggle() => HapticFeedback.lightImpact();
+
+  /// Something the user paid for or waited on went through.
+  static Future<void> success() => HapticFeedback.mediumImpact();
 }

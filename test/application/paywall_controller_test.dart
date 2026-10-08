@@ -48,6 +48,16 @@ void main() {
       expect(paywall.isLocked(premium), isTrue);
     });
 
+    test('lets a player be prepared once the user commits', () {
+      expect(const PaywallState().canPrepare(premium), isFalse);
+      expect(
+        PaywallState(unlocks: {premium.id: UnlockState.unlocking})
+            .canPrepare(premium),
+        isTrue,
+      );
+      expect(const PaywallState().canPrepare(fakeEpisode(6)), isTrue);
+    });
+
     test('lifts the lock once unlocked', () {
       final paywall = PaywallState(unlocks: {premium.id: UnlockState.unlocked});
 
@@ -150,6 +160,45 @@ void main() {
       await paywall.unlock('ep-07');
       unlocks.purchase!.complete();
       await first;
+      expect(
+        container.read(paywallControllerProvider).stateOf(premium),
+        UnlockState.unlocked,
+      );
+    });
+
+    test('stays unlocking until the paywall has finished', () async {
+      final unlocks = FakeUnlockRepository();
+      final container = await paywallOn(unlocks);
+      PaywallState paywall() => container.read(paywallControllerProvider);
+      final exit = Completer<void>();
+
+      final unlocking = container
+          .read(paywallControllerProvider.notifier)
+          .unlock('ep-07', onPurchased: () => exit.future);
+      await pumpEventQueue();
+
+      // Bought and saved, but still behind the paywall until its exit ends.
+      expect(unlocks.unlockedIds(), {'ep-07'});
+      expect(paywall().stateOf(premium), UnlockState.unlocking);
+      expect(paywall().lockedItemId, 'ep-07');
+
+      exit.complete();
+      await unlocking;
+      expect(paywall().stateOf(premium), UnlockState.unlocked);
+      expect(paywall().lockedItemId, isNull);
+    });
+
+    test('completes the unlock even if the paywall exit fails', () async {
+      final container = await paywallOn(FakeUnlockRepository());
+
+      final unlocking = container
+          .read(paywallControllerProvider.notifier)
+          .unlock(
+            'ep-07',
+            onPurchased: () async => throw StateError('Exit interrupted'),
+          );
+
+      await expectLater(unlocking, throwsStateError);
       expect(
         container.read(paywallControllerProvider).stateOf(premium),
         UnlockState.unlocked,

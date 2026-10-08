@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/animation.dart';
 
 // Motion design tokens. Every spring, curve and duration in the app is defined
@@ -39,6 +41,14 @@ abstract final class MotionSprings {
       SpringDescription.withDurationAndBounce(
         duration: const Duration(milliseconds: 280),
       );
+
+  /// A double-tap heart popping in: from nothing to 1.2× at about 135 ms,
+  /// settled at full size by 400 ms, when it starts to drift away.
+  static final SpringDescription heartPop =
+      SpringDescription.withDurationAndBounce(
+        duration: const Duration(milliseconds: 240),
+        bounce: 0.544,
+      );
 }
 
 /// Easing for fixed-timeline animations: fades, crossfades and sweeps.
@@ -79,6 +89,12 @@ abstract final class MotionDurations {
   /// Whole life of a double-tap heart, from pop to fully faded.
   static const Duration heartLifetime = Duration(milliseconds: 900);
 
+  /// A heart drifting up while it fades out: the last part of its life.
+  static const Duration heartFade = Duration(milliseconds: 500);
+
+  /// The small hearts bursting out of a new heart, from launch to gone.
+  static const Duration heartSparks = Duration(milliseconds: 450);
+
   /// One pass of the skeleton shimmer.
   static const Duration skeletonShimmer = Duration(milliseconds: 1400);
 
@@ -96,6 +112,74 @@ abstract final class MotionDurations {
   /// Start-to-start time between two Unlock button sweeps.
   static const Duration ctaShimmerInterval = Duration(seconds: 3);
 
+  /// Delay between consecutive items of a staggered entrance.
+  static const Duration staggerStep = Duration(milliseconds: 60);
+
+  /// How long each staggered item takes to fade in and rise.
+  static const Duration staggerItem = Duration(milliseconds: 300);
+
+  /// One full turn of the Unlock button's spinner.
+  static const Duration spinnerTurn = Duration(milliseconds: 900);
+
+  /// Drawing the checkmark once an unlock succeeds.
+  static const Duration checkmarkDraw = Duration(milliseconds: 280);
+
+  /// How long the checkmark holds before the paywall card leaves.
+  static const Duration unlockCelebration = Duration(milliseconds: 520);
+
+  /// The paywall card dropping away while the blur clears.
+  static const Duration paywallDismiss = Duration(milliseconds: 320);
+
+  /// An unfilled ad page's skeleton fading out before the feed moves on.
+  static const Duration adNoFillFade = Duration(milliseconds: 180);
+
+  /// The feed moving off an unfilled ad page to the next one.
+  static const Duration adNoFillSkip = Duration(milliseconds: 360);
+
   /// Crossfade that replaces movement when the OS asks for reduced motion.
   static const Duration reducedMotionFade = Duration(milliseconds: 150);
+}
+
+/// Thresholds used to read gestures: fling or stop, single or double tap.
+abstract final class MotionGestures {
+  /// A second tap that lands within this long of the first one lifting is
+  /// a double tap. A single tap waits this long before it counts.
+  static const Duration doubleTapWindow = Duration(milliseconds: 280);
+
+  /// The farthest a double tap's second tap may land from its first, in
+  /// logical pixels.
+  static const double doubleTapSlop = 40;
+
+  /// A finger that rests this long before lifting has stopped, so its lift
+  /// is not a fling. The same threshold as Flutter's own velocity tracker.
+  static const Duration stillBeforeLift = Duration(milliseconds: 40);
+
+  /// How far back a fling's velocity is measured from the last touch
+  /// sample. The same window as Flutter's own velocity tracker.
+  static const Duration flingWindow = Duration(milliseconds: 100);
+}
+
+/// Distances, scales and strengths that animations move between.
+abstract final class MotionValues {
+  /// Backdrop blur behind the paywall card, at full strength.
+  static const double paywallBlurSigma = 20;
+
+  /// Share of the paywall card already showing when its page has scrolled
+  /// fully into view, before the entrance spring takes over.
+  static const double paywallPeek = 0.3;
+
+  /// How far a staggered item rises while it fades in, in logical pixels.
+  static const double staggerRise = 12;
+
+  /// Scale of a button held down.
+  static const double pressScale = 0.95;
+
+  /// How far a double-tap heart rises while it fades, in logical pixels.
+  static const double heartDrift = 60;
+
+  /// The most a double-tap heart tilts either way, in radians (15°).
+  static const double heartMaxTilt = 15 * math.pi / 180;
+
+  /// How far the small hearts of a burst fly, in logical pixels.
+  static const double heartSparkTravel = 56;
 }

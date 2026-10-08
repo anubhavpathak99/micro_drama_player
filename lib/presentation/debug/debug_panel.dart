@@ -2,17 +2,21 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:micro_drama_interactive_player/application/ad_preloader.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/domain/ad_slot_state.dart';
 import 'package:micro_drama_interactive_player/domain/feed_item.dart';
 import 'package:micro_drama_interactive_player/domain/unlock_state.dart';
 
-// Debug panel: developer view of the feed, the paywall and the player pool.
-// It is a real route, so opening it also exercises pausing when the feed is
-// covered.
-//
-// TODO: Add a control to force an ad failure.
+// Debug panel: developer view of the feed, the paywall, the ads and the
+// player pool. It is a real route, so opening it also exercises pausing when
+// the feed is covered.
+
+/// How long to wait after closing the panel before failing an ad slot, so
+/// the feed's reaction plays on screen rather than under the panel.
+const Duration _afterClose = Duration(milliseconds: 700);
 
 /// Small "DEV" pill that opens the [DebugPanel].
 class DebugPanelButton extends StatelessWidget {
@@ -50,6 +54,7 @@ class DebugPanel extends ConsumerWidget {
         : pool.userPaused
         ? 'Paused by user'
         : 'Normal';
+    final ads = ref.watch(adPreloaderProvider);
     final lockedItemId = paywall.lockedItemId;
     final paywallActions = ref.read(paywallControllerProvider.notifier);
 
@@ -85,6 +90,25 @@ class DebugPanel extends ConsumerWidget {
               ],
             ),
           ),
+          const ListTile(
+            title: Text('Ads'),
+            subtitle: Text(
+              'Test ads always fill. Simulate no-fill closes this panel, '
+              'then fails the slot.',
+            ),
+          ),
+          for (final MapEntry(key: slotId, value: status) in ads.entries)
+            ListTile(
+              dense: true,
+              title: Text(slotId),
+              subtitle: Text(status.state.name),
+              trailing: TextButton(
+                onPressed: status.state == AdSlotState.failed
+                    ? null
+                    : () => _simulateNoFill(context, ref, slotId),
+                child: const Text('Simulate no-fill'),
+              ),
+            ),
           const Divider(),
           for (final item in feed?.items ?? const <FeedItem>[])
             ListTile(
@@ -113,6 +137,18 @@ class DebugPanel extends ConsumerWidget {
             ),
         ],
       ),
+    );
+  }
+
+  static void _simulateNoFill(
+    BuildContext context,
+    WidgetRef ref,
+    String slotId,
+  ) {
+    final preloader = ref.read(adPreloaderProvider.notifier);
+    Navigator.of(context).pop();
+    unawaited(
+      Future<void>.delayed(_afterClose, () => preloader.simulateNoFill(slotId)),
     );
   }
 

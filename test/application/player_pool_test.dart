@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
@@ -14,8 +16,11 @@ import '../support/fake_video.dart';
 
 /// A container wired to fakes, with the feed loaded and the pool running.
 class PoolHarness {
-  PoolHarness({Set<String> cachedEpisodeIds = const {}})
-    : cache = FakeVideoCache(cachedEpisodeIds: cachedEpisodeIds) {
+  PoolHarness({
+    Set<String> cachedEpisodeIds = const {},
+    FakeUnlockRepository? unlocks,
+  }) : cache = FakeVideoCache(cachedEpisodeIds: cachedEpisodeIds),
+       unlocks = unlocks ?? FakeUnlockRepository() {
     container = ProviderContainer.test(
       overrides: [
         episodeRepositoryProvider.overrideWithValue(
@@ -23,13 +28,14 @@ class PoolHarness {
         ),
         videoControllerFactoryProvider.overrideWithValue(factory),
         videoCacheProvider.overrideWithValue(cache),
-        unlockRepositoryProvider.overrideWithValue(FakeUnlockRepository()),
+        unlockRepositoryProvider.overrideWithValue(this.unlocks),
       ],
     );
   }
 
   final FakeVideoControllerFactory factory = FakeVideoControllerFactory();
   final FakeVideoCache cache;
+  final FakeUnlockRepository unlocks;
   late final ProviderContainer container;
 
   PlayerPoolState get pool => container.read(playerPoolProvider);
@@ -157,6 +163,61 @@ void main() {
 
       expect(h.pool.activeId, isNull);
       expect(h.pool.slots, isEmpty);
+    });
+
+    test('prepares the episode while it unlocks, without playing it', () async {
+      final unlocks = FakeUnlockRepository()..purchase = Completer<void>();
+      final h = PoolHarness(unlocks: unlocks);
+      await h.start();
+      await h.goTo('ep-07');
+
+      final unlocking = h.paywall.unlock('ep-07');
+      await settle();
+
+      final player = h.factory.liveFor('ep-07')!;
+      expect(player.value.isInitialized, isTrue);
+      expect(player.value.isPlaying, isFalse);
+      expect(h.pool.activeId, isNull);
+
+      unlocks.purchase!.complete();
+      await unlocking;
+      await settle();
+      expect(h.pool.activeId, 'ep-07');
+      expect(player.value.isPlaying, isTrue);
+    });
+
+    test('keeps the episode silent until the paywall has finished', () async {
+      final h = await started();
+      await h.goTo('ep-07');
+      final exit = Completer<void>();
+
+      final unlocking = h.paywall.unlock(
+        'ep-07',
+        onPurchased: () => exit.future,
+      );
+      await settle();
+      expect(h.factory.liveFor('ep-07')!.value.isPlaying, isFalse);
+
+      exit.complete();
+      await unlocking;
+      await settle();
+      expect(h.factory.liveFor('ep-07')!.value.isPlaying, isTrue);
+    });
+
+    test('releases the prepared player when the purchase fails', () async {
+      final unlocks = FakeUnlockRepository()..purchase = Completer<void>();
+      final h = PoolHarness(unlocks: unlocks);
+      await h.start();
+      await h.goTo('ep-07');
+
+      final unlocking = h.paywall.unlock('ep-07');
+      await settle();
+      expect(h.factory.liveFor('ep-07'), isNotNull);
+
+      unlocks.purchase!.completeError(StateError('Store unavailable'));
+      await expectLater(unlocking, throwsStateError);
+      await settle();
+      expect(h.factory.liveFor('ep-07'), isNull);
     });
 
     test('creates and plays the player once the episode unlocks', () async {

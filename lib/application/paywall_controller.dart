@@ -27,6 +27,10 @@ final class PaywallState {
 
   /// Whether [episode] is behind the paywall: locked, or still unlocking.
   bool isLocked(Episode episode) => !stateOf(episode).canPlay;
+
+  /// Whether a player may be created for [episode]. True once the user has
+  /// committed to the unlock, so the episode is ready the moment it opens.
+  bool canPrepare(Episode episode) => stateOf(episode).canPrepare;
 }
 
 /// Id of the first locked premium episode in [items], or null.
@@ -65,20 +69,30 @@ class PaywallController extends Notifier<PaywallState> {
     return _compose();
   }
 
-  /// Buys [episodeId]: it shows as unlocking during the purchase and as
-  /// unlocked once it is recorded. If the purchase fails, the episode is
-  /// locked again and the error is rethrown.
+  /// Buys [episodeId]. It is unlocking from the tap, so its player can warm
+  /// up, and becomes unlocked (playable, no longer stopping the feed) once
+  /// the purchase is saved and [onPurchased] has finished. The paywall uses
+  /// [onPurchased] to play its exit before the episode opens up.
   ///
+  /// If the purchase fails, the episode is locked again and the error is
+  /// rethrown. The unlock completes even if [onPurchased] throws.
   /// Ignored for free episodes and for episodes not currently locked.
-  Future<void> unlock(String episodeId) async {
+  Future<void> unlock(
+    String episodeId, {
+    Future<void> Function()? onPurchased,
+  }) async {
     if (!_isLockedPremium(episodeId)) return;
     _set(episodeId, UnlockState.unlocking);
     try {
       await _repository.unlock(episodeId);
-      if (ref.mounted) _set(episodeId, UnlockState.unlocked);
     } catch (_) {
       if (ref.mounted) _set(episodeId, UnlockState.locked);
       rethrow;
+    }
+    try {
+      await onPurchased?.call();
+    } finally {
+      if (ref.mounted) _set(episodeId, UnlockState.unlocked);
     }
   }
 

@@ -39,6 +39,19 @@
         <meta-data
             android:name="com.google.android.gms.ads.APPLICATION_ID"
             android:value="ca-app-pub-3940256099942544~3347511713"/>
+        <!-- Marks this as an Ad Manager app. Current Google docs only ask for
+             the app ID above; the flag is harmless next to it and kept for
+             SDK versions that read it. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.AD_MANAGER_APP"
+            android:value="true"/>
+        <!-- The SDK's native ad validator pops up over test ads, and its
+             popups outlive the ad page (they float over episodes and other
+             screens). The full-screen layout passes it ("No implementation
+             issues found"). Set to true to check a layout change. -->
+        <meta-data
+            android:name="com.google.android.gms.ads.flag.NATIVE_AD_DEBUGGER_ENABLED"
+            android:value="false"/>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

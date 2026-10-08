@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/physics.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_drama_interactive_player/core/motion/motion_tokens.dart';
@@ -31,6 +33,14 @@ void main() {
       expect(bouncy.peak, inInclusiveRange(1.05, 1.2));
     });
 
+    test('bouncy is underdamped at a 0.6 damping ratio', () {
+      final spring = MotionSprings.bouncy;
+      final ratio =
+          spring.damping / (2 * math.sqrt(spring.mass * spring.stiffness));
+
+      expect(ratio, moreOrLessEquals(0.6, epsilon: 1e-9));
+    });
+
     test('gentle never overshoots', () {
       expect(gentle.peak, lessThanOrEqualTo(1 + 1e-6));
     });
@@ -56,13 +66,27 @@ void main() {
       expect(pageSnap.peak, lessThanOrEqualTo(1 + 1e-6));
       expect(pageSnap.settle, lessThan(flutterDefault.settle));
     });
+
+    test('heartPop overshoots to 1.2× and settles before the heart drifts', () {
+      final heartPop = profile(MotionSprings.heartPop);
+
+      expect(heartPop.peak, moreOrLessEquals(1.2, epsilon: 0.005));
+      expect(
+        heartPop.settle,
+        lessThanOrEqualTo(
+          MotionDurations.heartLifetime - MotionDurations.heartFade,
+        ),
+      );
+    });
   });
 
   group('MotionDurations', () {
-    test('a CTA sweep finishes before the next one starts', () {
+    test('a CTA sweep takes the first 30% of its 3 s period', () {
+      expect(MotionDurations.ctaShimmerInterval, const Duration(seconds: 3));
       expect(
-        MotionDurations.ctaShimmerSweep,
-        lessThan(MotionDurations.ctaShimmerInterval),
+        MotionDurations.ctaShimmerSweep.inMicroseconds /
+            MotionDurations.ctaShimmerInterval.inMicroseconds,
+        0.3,
       );
     });
 

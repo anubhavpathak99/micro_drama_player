@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Full-screen native ad page: media fills the page; a "Sponsored" label sits
+     at the top; advertiser, headline and call to action sit over a bottom
+     scrim. Vertical swipes never reach this view (Flutter's page view claims
+     them); taps do. -->
+<com.google.android.gms.ads.nativead.NativeAdView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/ad_background">
+
+    <FrameLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <com.google.android.gms.ads.nativead.MediaView
+            android:id="@+id/ad_media"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="360dp"
+            android:layout_gravity="bottom"
+            android:background="@drawable/ad_bottom_scrim" />
+
+        <TextView
+            android:id="@+id/ad_sponsored"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="16dp"
+            android:layout_marginTop="56dp"
+            android:background="@drawable/ad_label_background"
+            android:letterSpacing="0.06"
+            android:paddingStart="8dp"
+            android:paddingTop="4dp"
+            android:paddingEnd="8dp"
+            android:paddingBottom="4dp"
+            android:text="@string/ad_sponsored"
+            android:textColor="@android:color/white"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="vertical"
+            android:paddingStart="20dp"
+            android:paddingEnd="20dp"
+            android:paddingBottom="72dp">
+
+            <TextView
+                android:id="@+id/ad_advertiser"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:maxLines="1"
+                android:ellipsize="end"
+                android:textColor="@color/ad_muted_text"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/ad_headline"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:maxLines="2"
+                android:ellipsize="end"
+                android:textColor="@android:color/white"
+                android:textSize="22sp"
+                android:textStyle="bold" />
+
+            <Button
+                android:id="@+id/ad_call_to_action"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="16dp"
+                android:background="@drawable/ad_cta_background"
+                android:stateListAnimator="@null"
+                android:textAllCaps="false"
+                android:textColor="@color/ad_background"
+                android:textSize="16sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </FrameLayout>
+</com.google.android.gms.ads.nativead.NativeAdView>

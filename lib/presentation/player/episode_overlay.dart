@@ -8,14 +8,9 @@ import 'package:micro_drama_interactive_player/presentation/player/episode_layou
 /// number and title) and the action rail. Only the rail takes taps; taps
 /// anywhere else fall through to the page.
 class EpisodeOverlay extends StatelessWidget {
-  const EpisodeOverlay({
-    super.key,
-    required this.episode,
-    required this.locked,
-  });
+  const EpisodeOverlay({super.key, required this.episode});
 
   final Episode episode;
-  final bool locked;
 
   @override
   Widget build(BuildContext context) {
@@ -31,9 +26,7 @@ class EpisodeOverlay extends StatelessWidget {
               EpisodeLayout.railWidth +
               EpisodeLayout.railGap,
           bottom: insets.bottom + EpisodeLayout.captionBottom,
-          child: IgnorePointer(
-            child: _Caption(episode: episode, locked: locked),
-          ),
+          child: IgnorePointer(child: _Caption(episode: episode)),
         ),
         Positioned(
           right: EpisodeLayout.railRight,
@@ -50,29 +43,16 @@ const List<Shadow> _textShadows = [
 ];
 
 class _Caption extends StatelessWidget {
-  const _Caption({required this.episode, required this.locked});
+  const _Caption({required this.episode});
 
   final Episode episode;
-  final bool locked;
 
   @override
   Widget build(BuildContext context) => Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     mainAxisSize: MainAxisSize.min,
     children: [
-      Row(
-        children: [
-          _Chip(label: 'EP ${episode.number}'),
-          if (locked) ...[
-            const SizedBox(width: 6),
-            const _Chip(
-              label: 'Premium',
-              icon: Icons.lock_rounded,
-              color: AppColors.premium,
-            ),
-          ],
-        ],
-      ),
+      _Chip(label: 'EP ${episode.number}'),
       const SizedBox(height: EpisodeLayout.chipGap),
       Text(
         episode.title,
@@ -91,11 +71,9 @@ class _Caption extends StatelessWidget {
 }
 
 class _Chip extends StatelessWidget {
-  const _Chip({required this.label, this.icon, this.color = AppColors.onMedia});
+  const _Chip({required this.label});
 
   final String label;
-  final IconData? icon;
-  final Color color;
 
   @override
   Widget build(BuildContext context) => Container(
@@ -105,23 +83,18 @@ class _Chip extends StatelessWidget {
       color: const Color(0x33FFFFFF),
       borderRadius: BorderRadius.circular(6),
     ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (icon case final icon?) ...[
-          Icon(icon, size: 12, color: color),
-          const SizedBox(width: 4),
-        ],
-        Text(
-          label,
-          style: TextStyle(
-            color: color,
-            fontSize: 12,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 0.6,
-          ),
+    // widthFactor 1 keeps the chip as wide as its label.
+    child: Center(
+      widthFactor: 1,
+      child: Text(
+        label,
+        style: const TextStyle(
+          color: AppColors.onMedia,
+          fontSize: 12,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.6,
         ),
-      ],
+      ),
     ),
   );
 }

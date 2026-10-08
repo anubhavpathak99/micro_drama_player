@@ -1,10 +1,16 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:micro_drama_interactive_player/application/engagement_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/core/haptics/haptics.dart';
 import 'package:micro_drama_interactive_player/core/motion/motion_tokens.dart';
 import 'package:micro_drama_interactive_player/core/theme/app_theme.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
+import 'package:micro_drama_interactive_player/presentation/gestures/heart_burst_layer.dart';
+import 'package:micro_drama_interactive_player/presentation/paywall/paywall_overlay.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_overlay.dart';
 import 'package:micro_drama_interactive_player/presentation/player/play_pause_indicator.dart';
 import 'package:micro_drama_interactive_player/presentation/player/playback_error_view.dart';
@@ -17,7 +23,8 @@ import 'package:video_player/video_player.dart';
 /// (fading in on its first frame), the loading skeleton, the overlay chrome,
 /// the play/pause glyph and, on failure, an in-place retry.
 ///
-/// A tap anywhere outside the rail toggles playback.
+/// A tap anywhere outside the rail toggles playback once the double-tap
+/// window has passed. A double tap likes the episode with a burst of hearts.
 class EpisodePage extends ConsumerStatefulWidget {
   const EpisodePage({super.key, required this.episode});
 
@@ -94,6 +101,13 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
     return value.isPlaying && value.isBuffering && !advanced;
   }
 
+  // Every heart of a double tap and its combo. Liking is idempotent: the
+  // episode stays liked however many hearts go up.
+  void _like() {
+    ref.read(likedEpisodesProvider.notifier).add(_id);
+    unawaited(Haptics.toggle());
+  }
+
   @override
   Widget build(BuildContext context) {
     final episode = widget.episode;
@@ -105,14 +119,17 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
         (pool) => pool.activeId == _id && pool.userPaused,
       ),
     );
-    final locked = ref.watch(
+    // Behind the paywall (locked, or unlocking until its exit finishes) the
+    // card replaces the episode chrome.
+    final gated = ref.watch(
       paywallControllerProvider.select((paywall) => paywall.isLocked(episode)),
     );
     final pool = ref.read(playerPoolProvider.notifier);
 
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: slot is PlayerReady ? () => pool.togglePlayback(_id) : null,
+    return HeartBurstLayer(
+      enabled: !gated,
+      onSingleTap: slot is PlayerReady ? () => pool.togglePlayback(_id) : null,
+      onHeart: _like,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -123,19 +140,20 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
           ValueListenableBuilder<bool>(
             valueListenable: _loading,
             builder: (context, loading, chrome) => IgnorePointer(
-              ignoring: loading,
+              ignoring: loading || gated,
               child: AnimatedOpacity(
-                opacity: loading ? 0 : 1,
+                opacity: loading || gated ? 0 : 1,
                 duration: MotionDurations.medium,
                 curve: MotionCurves.fade,
                 child: chrome,
               ),
             ),
-            child: EpisodeOverlay(episode: episode, locked: locked),
+            child: EpisodeOverlay(episode: episode),
           ),
           PlayPauseIndicator(paused: paused),
           if (slot is PlayerFailed)
             PlaybackErrorView(onRetry: () => pool.retry(_id)),
+          if (episode.isPremium) PaywallOverlay(episode: episode),
         ],
       ),
     );

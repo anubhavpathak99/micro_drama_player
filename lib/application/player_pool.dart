@@ -8,6 +8,7 @@ import 'package:micro_drama_interactive_player/application/player_window.dart';
 import 'package:micro_drama_interactive_player/data/video_cache.dart';
 import 'package:micro_drama_interactive_player/data/video_controller_factory.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
+import 'package:micro_drama_interactive_player/domain/feed_item.dart';
 import 'package:video_player/video_player.dart';
 
 /// Player state of one episode, as the UI sees it.
@@ -89,7 +90,9 @@ final class PlayerPoolState {
 /// [playerWindow] (the current page and its neighbours, at most
 /// [maxPlayers]). Neighbours are initialized ahead of time and parked,
 /// paused, on their first frame. Anything that leaves the window is disposed,
-/// and a locked episode never gets a controller.
+/// and a locked episode never gets a controller. Once the user commits to an
+/// unlock, the episode is prepared the same way, but only plays when it is
+/// fully unlocked.
 class PlayerPool extends Notifier<PlayerPoolState> {
   /// Upper bound on live controllers: the current page and its neighbours.
   static const int maxPlayers = 3;
@@ -180,7 +183,11 @@ class PlayerPool extends Notifier<PlayerPoolState> {
     final paywall = ref.read(paywallControllerProvider);
     final window = feed == null
         ? const <String>{}
-        : playerWindow(feed.items, feed.currentId, isLocked: paywall.isLocked);
+        : playerWindow(
+            feed.items,
+            feed.currentId,
+            canPrepare: paywall.canPrepare,
+          );
 
     for (final id in [..._players.keys]) {
       if (!window.contains(id)) _players.remove(id)?.dispose();
@@ -192,7 +199,14 @@ class PlayerPool extends Notifier<PlayerPoolState> {
     }
     assert(_players.length <= maxPlayers, 'Too many players: ${_players.keys}');
 
-    final activeId = window.contains(feed?.currentId) ? feed!.currentId : null;
+    // A prepared episode that is still unlocking stays parked: it may hold a
+    // player, but not play.
+    final activeId = switch (feed?.current) {
+      EpisodeItem(:final episode)
+          when window.contains(episode.id) && !paywall.isLocked(episode) =>
+        episode.id,
+      _ => null,
+    };
     if (activeId != _activeId) {
       _activeId = activeId;
       _userPaused = false;
@@ -207,7 +221,7 @@ class PlayerPool extends Notifier<PlayerPoolState> {
       if (player.disposed) return;
       // Hard guard, independent of the window: never construct a controller
       // for a locked episode, not even a paused one.
-      if (ref.read(paywallControllerProvider).isLocked(player.episode)) {
+      if (!ref.read(paywallControllerProvider).canPrepare(player.episode)) {
         _players.remove(player.id)?.dispose();
         _publish();
         return;

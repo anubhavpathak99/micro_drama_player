@@ -95,7 +95,9 @@ class _RailToggleState extends State<RailToggle>
     super.didUpdateWidget(oldWidget);
     if (widget.active && !oldWidget.active && !context.reduceMotion) {
       unawaited(
-        _scale.animateWith(SpringSimulation(MotionSprings.bouncy, 0.7, 1, 0)),
+        _scale.animateWith(
+          SpringSimulation(MotionSprings.bouncy, 0.7, 1, 0, snapToEnd: true),
+        ),
       );
     }
   }

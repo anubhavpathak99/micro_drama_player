@@ -9,11 +9,12 @@ import '../support/episode_fixtures.dart';
 void main() {
   // E1 E2 E3 AD E4 E5 E6 AD E7 E8 E9 E10, with E7 premium.
   final feed = composeFeed(fakeEpisodes());
-  bool premiumLocked(Episode episode) => episode.isPremium;
-  bool nothingLocked(Episode _) => false;
+  // The premium episode is locked: no player may be prepared for it.
+  bool unlessPremium(Episode episode) => !episode.isPremium;
+  bool anything(Episode _) => true;
 
-  Set<String> windowAt(String id, {bool Function(Episode)? isLocked}) =>
-      playerWindow(feed, id, isLocked: isLocked ?? premiumLocked);
+  Set<String> windowAt(String id, {bool Function(Episode)? canPrepare}) =>
+      playerWindow(feed, id, canPrepare: canPrepare ?? unlessPremium);
 
   group('playerWindow', () {
     test('holds the current page, then the next, then the previous', () {
@@ -40,8 +41,8 @@ void main() {
       expect(windowAt('ep-07'), isEmpty);
     });
 
-    test('includes the episode once it is unlocked', () {
-      expect(windowAt('ep-07', isLocked: nothingLocked).toList(), [
+    test('includes the episode once it may be prepared', () {
+      expect(windowAt('ep-07', canPrepare: anything).toList(), [
         'ep-07',
         'ep-08',
       ]);
@@ -50,7 +51,7 @@ void main() {
     test('never holds more than three players', () {
       for (final item in feed) {
         expect(
-          windowAt(item.id, isLocked: nothingLocked).length,
+          windowAt(item.id, canPrepare: anything).length,
           lessThanOrEqualTo(3),
           reason: item.id,
         );

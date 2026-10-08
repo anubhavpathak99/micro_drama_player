@@ -40,6 +40,7 @@ class _PlayPauseIndicatorState extends State<PlayPauseIndicator>
             _presence.value,
             target,
             0,
+            snapToEnd: true,
           ),
         ),
       );

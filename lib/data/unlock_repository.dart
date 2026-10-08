@@ -23,7 +23,7 @@ final class PrefsUnlockRepository implements UnlockRepository {
     this.purchaseLatency = defaultPurchaseLatency,
   });
 
-  static const Duration defaultPurchaseLatency = Duration(milliseconds: 900);
+  static const Duration defaultPurchaseLatency = Duration(milliseconds: 800);
 
   final SharedPreferencesWithCache _preferences;
   final Duration purchaseLatency;

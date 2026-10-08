@@ -3,13 +3,16 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:micro_drama_interactive_player/application/ad_preloader.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/core/motion/motion_tokens.dart';
 import 'package:micro_drama_interactive_player/core/theme/app_theme.dart';
 import 'package:micro_drama_interactive_player/domain/feed_item.dart';
 import 'package:micro_drama_interactive_player/presentation/ads/ad_page.dart';
 import 'package:micro_drama_interactive_player/presentation/debug/debug_panel.dart';
+import 'package:micro_drama_interactive_player/presentation/feed/feed_scroll_behavior.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/feed_scroll_physics.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/paywall_lock_physics.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_page.dart';
@@ -77,6 +80,12 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
   ScrollPhysics? _physicsBase;
   int? _physicsLockedPage;
 
+  // Lift times for the fling tracker; see FeedScrollBehavior.
+  final PointerLifts _lifts = PointerLifts();
+
+  late final FeedController _feed;
+  late final FeedPager _pager;
+
   PlayerPool get _pool => ref.read(playerPoolProvider.notifier);
 
   @override
@@ -85,11 +94,17 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
     _pages = PageController(
       initialPage: ref.read(feedControllerProvider).requireValue.currentIndex,
     );
+    _pager = _PageControllerPager(_pages);
+    _feed = ref.read(feedControllerProvider.notifier)..attachPager(_pager);
     _lifecycle = AppLifecycleListener(onStateChange: _onLifecycleChanged);
-    ref.listenManual(
-      paywallControllerProvider.select((paywall) => paywall.lockedItemId),
-      (_, lockedItemId) => _returnToLock(lockedItemId),
-    );
+    ref
+      ..listenManual(
+        paywallControllerProvider.select((paywall) => paywall.lockedItemId),
+        (_, lockedItemId) => _returnToLock(lockedItemId),
+      )
+      // Keeps the ad preloader running from the start, so the first slot
+      // loads before the user gets near it.
+      ..listenManual(adPreloaderProvider, (_, _) {});
   }
 
   @override
@@ -112,6 +127,7 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
 
   @override
   void dispose() {
+    _feed.detachPager(_pager);
     appRouteObserver.unsubscribe(this);
     _lifecycle.dispose();
     _pages.dispose();
@@ -133,15 +149,23 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
   @override
   void didPopNext() => _pool.resume(SuspendReason.routeCovered);
 
+  // Reads the feed's latest items: when an ad slot is removed, the pager
+  // jumps in the same frame, before this widget has rebuilt with them.
+  List<FeedItem> get _items =>
+      ref.read(feedControllerProvider).value?.items ?? widget.items;
+
   void _onPageChanged(int index) {
-    ref
-        .read(feedControllerProvider.notifier)
-        .setCurrent(widget.items[index].id);
+    final items = _items;
+    if (index >= items.length) return;
+    _feed.setCurrent(items[index].id);
     _precacheAround(index);
   }
 
   bool _onScrollEnd(ScrollEndNotification notification) {
-    if (notification.depth == 0) _pool.rewindInactive();
+    if (notification.depth == 0) {
+      _pool.rewindInactive();
+      _feed.onSettled();
+    }
     return false;
   }
 
@@ -174,9 +198,10 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
   /// Decodes posters two pages ahead and behind, so a page never shows up
   /// before its poster does.
   void _precacheAround(int index) {
+    final items = _items;
     for (var i = index - 2; i <= index + 2; i++) {
-      if (i < 0 || i >= widget.items.length) continue;
-      if (widget.items[i] case EpisodeItem(:final episode)) {
+      if (i < 0 || i >= items.length) continue;
+      if (items[i] case EpisodeItem(:final episode)) {
         unawaited(precacheImage(AssetImage(episode.posterAsset), context));
       }
     }
@@ -192,33 +217,64 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
     final physics = _physicsFor(_indexById[lockedItemId]);
     return NotificationListener<ScrollEndNotification>(
       onNotification: _onScrollEnd,
-      child: PageView.custom(
-        controller: _pages,
-        scrollDirection: Axis.vertical,
-        allowImplicitScrolling: true,
-        // The feed physics snap pages themselves. PageView's own snapping
-        // would wrap them and bypass the paywall's fling handling.
-        pageSnapping: false,
-        physics: physics,
-        // Scrollable keeps its position, and with it the old physics, when
-        // only the physics' configuration changes. The behaviour compares
-        // physics instances, so a moved lock does take effect.
-        scrollBehavior: ScrollConfiguration.of(context)
-            .copyWith(scrollbars: false, physics: physics),
-        onPageChanged: _onPageChanged,
-        childrenDelegate: SliverChildBuilderDelegate(
-          (context, index) =>
-              FeedPage(key: ValueKey(items[index].id), item: items[index]),
-          childCount: items.length,
-          findChildIndexCallback: (key) =>
-              _indexById[(key as ValueKey<String>).value],
-          // Pages hold no state worth keeping alive (the pool owns players),
-          // and FeedPage adds its own repaint boundary.
-          addAutomaticKeepAlives: false,
-          addRepaintBoundaries: false,
+      child: Listener(
+        onPointerUp: _lifts.record,
+        child: PageView.custom(
+          controller: _pages,
+          scrollDirection: Axis.vertical,
+          allowImplicitScrolling: true,
+          // The feed physics snap pages themselves. PageView's own snapping
+          // would wrap them and bypass the paywall's fling handling.
+          pageSnapping: false,
+          physics: physics,
+          // Scrollable keeps its position, and with it the old physics, when
+          // only the physics' configuration changes. The behaviour compares
+          // physics instances, so a moved lock does take effect.
+          scrollBehavior: FeedScrollBehavior(_lifts)
+              .copyWith(scrollbars: false, physics: physics),
+          onPageChanged: _onPageChanged,
+          childrenDelegate: SliverChildBuilderDelegate(
+            (context, index) =>
+                FeedPage(key: ValueKey(items[index].id), item: items[index]),
+            childCount: items.length,
+            findChildIndexCallback: (key) =>
+                _indexById[(key as ValueKey<String>).value],
+            // Pages hold no state worth keeping alive (the pool owns
+            // players), and FeedPage adds its own repaint boundary.
+            addAutomaticKeepAlives: false,
+            addRepaintBoundaries: false,
+          ),
         ),
       ),
     );
+  }
+}
+
+/// [FeedPager] over the feed's PageController.
+final class _PageControllerPager implements FeedPager {
+  _PageControllerPager(this._pages);
+
+  final PageController _pages;
+
+  @override
+  bool get isScrolling =>
+      _pages.hasClients && _pages.position.isScrollingNotifier.value;
+
+  @override
+  Future<void> animateToPage(int index) async {
+    // The page being left fades its skeleton out first.
+    await Future<void>.delayed(MotionDurations.adNoFillFade);
+    if (!_pages.hasClients) return;
+    await _pages.animateToPage(
+      index,
+      duration: MotionDurations.adNoFillSkip,
+      curve: MotionCurves.standard,
+    );
+  }
+
+  @override
+  void jumpToPage(int index) {
+    if (_pages.hasClients) _pages.jumpToPage(index);
   }
 }
 

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ad_sponsored">Sponsored</string>
+    <color name="ad_background">#FF09090D</color>
+    <color name="ad_muted_text">#B3FFFFFF</color>
+</resources>
