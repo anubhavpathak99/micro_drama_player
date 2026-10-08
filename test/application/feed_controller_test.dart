@@ -85,6 +85,39 @@ void main() {
       );
     });
 
+    test('jumps the page view straight to a page by id', () async {
+      final container = containerWith(fakeEpisodes());
+      await container.read(feedControllerProvider.future);
+      final pager = FakePager(container);
+      container.read(feedControllerProvider.notifier)
+        ..attachPager(pager)
+        ..jumpTo('ep-06');
+
+      expect(pager.moves, ['jump 6']);
+      expect(container.read(feedControllerProvider).value!.currentId, 'ep-06');
+    });
+
+    test('a jump without a page view still moves the feed', () async {
+      final container = containerWith(fakeEpisodes());
+      await container.read(feedControllerProvider.future);
+
+      container.read(feedControllerProvider.notifier).jumpTo('ep-06');
+
+      expect(container.read(feedControllerProvider).value!.currentId, 'ep-06');
+    });
+
+    test('ignores a jump to an unknown id', () async {
+      final container = containerWith(fakeEpisodes());
+      await container.read(feedControllerProvider.future);
+      final pager = FakePager(container);
+      container.read(feedControllerProvider.notifier)
+        ..attachPager(pager)
+        ..jumpTo('ep-99');
+
+      expect(pager.moves, isEmpty);
+      expect(container.read(feedControllerProvider).value!.currentId, 'ep-01');
+    });
+
     test('treats an empty catalog as an error', () async {
       final container = containerWith(const []);
 

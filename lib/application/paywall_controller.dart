@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
+import 'package:micro_drama_interactive_player/core/analytics/analytics_service.dart';
 import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
 import 'package:micro_drama_interactive_player/domain/feed_item.dart';
@@ -82,6 +83,8 @@ class PaywallController extends Notifier<PaywallState> {
     Future<void> Function()? onPurchased,
   }) async {
     if (!_isLockedPremium(episodeId)) return;
+    final analytics = ref.read(analyticsProvider)
+      ..log(AnalyticsEvents.unlockTap, {'episode': episodeId});
     _set(episodeId, UnlockState.unlocking);
     try {
       await _repository.unlock(episodeId);
@@ -89,6 +92,7 @@ class PaywallController extends Notifier<PaywallState> {
       if (ref.mounted) _set(episodeId, UnlockState.locked);
       rethrow;
     }
+    analytics.log(AnalyticsEvents.unlockSuccess, {'episode': episodeId});
     try {
       await onPurchased?.call();
     } finally {

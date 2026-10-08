@@ -13,6 +13,14 @@ void main() {
       expect(EpisodeItem(fakeEpisode(1)), EpisodeItem(fakeEpisode(1)));
       expect(EpisodeItem(fakeEpisode(1)), isNot(EpisodeItem(fakeEpisode(2))));
     });
+
+    test('hashes like its equal, so sets and selects see one page', () {
+      expect({
+        EpisodeItem(fakeEpisode(1)),
+        EpisodeItem(fakeEpisode(1)),
+      }, hasLength(1));
+      expect('${EpisodeItem(fakeEpisode(1))}', 'EpisodeItem(ep-01)');
+    });
   });
 
   group('AdSlotItem', () {
@@ -26,6 +34,12 @@ void main() {
 
     test('never shares an id with an episode', () {
       expect(AdSlotItem.after(3).id, isNot(EpisodeItem(fakeEpisode(3)).id));
+    });
+
+    test('hashes like its equal and differs from other slots', () {
+      expect({AdSlotItem.after(3), AdSlotItem.after(3)}, hasLength(1));
+      expect(AdSlotItem.after(3), isNot(AdSlotItem.after(6)));
+      expect('${AdSlotItem.after(3)}', 'AdSlotItem(ad-after-3)');
     });
   });
 }

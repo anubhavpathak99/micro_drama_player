@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:micro_drama_interactive_player/application/debug_settings.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/core/analytics/analytics_service.dart';
 import 'package:micro_drama_interactive_player/core/env/ad_config.dart';
@@ -105,6 +106,10 @@ class AdPreloader extends Notifier<Map<String, AdSlotStatus>> {
     if (!ref.mounted || slot.attempt != attempt) return;
 
     _analytics.log(AnalyticsEvents.adRequest, {'slot': slot.id});
+    if (ref.read(debugSettingsProvider).forceAdNoFill) {
+      _fail(slot, reason: 'forced');
+      return;
+    }
     final stopwatch = Stopwatch()..start();
     final pending = _ads.loadNative(
       onImpression: () =>

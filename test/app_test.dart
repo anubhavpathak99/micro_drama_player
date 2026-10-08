@@ -29,6 +29,7 @@ void main() {
         child: const MicroDramaApp(),
       ),
     );
+    // Settles with a video playing: playback schedules no frames of its own.
     await tester.pumpAndSettle();
 
     expect(find.byType(FeedScreen), findsOneWidget);

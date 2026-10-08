@@ -59,8 +59,16 @@ class _HeartBurstLayerState extends State<HeartBurstLayer>
   final List<HeartBurst> _bursts = [];
   final _Clock _clock = _Clock();
   late final Ticker _ticker = createTicker(_tick);
-  late final CustomPainter _painter = _HeartBurstPainter(_bursts, _clock);
+  late final _HeartBurstPainter _painter = _HeartBurstPainter(_bursts, _clock);
   late final math.Random _random = widget.random ?? math.Random();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Drawn now, while the page appears, rather than on the first double
+    // tap: their one-off render would cost that heart's first frame.
+    _painter.sprites = _HeartSprites.of(MediaQuery.devicePixelRatioOf(context));
+  }
 
   @override
   void didUpdateWidget(HeartBurstLayer oldWidget) {
@@ -244,12 +252,115 @@ final class _TapSemantics extends SemanticsGestureDelegate {
   }
 }
 
-/// Paints every heart and spark in one pass.
+/// Paints every heart and spark in one pass, as sprites.
 final class _HeartBurstPainter extends CustomPainter {
   _HeartBurstPainter(this._bursts, this._clock) : super(repaint: _clock);
 
   final List<HeartBurst> _bursts;
   final _Clock _clock;
+
+  /// Set as soon as the layer knows its pixel ratio.
+  _HeartSprites? sprites;
+
+  static const List<Color> _sparkColors = [
+    AppColors.accent,
+    Color(0xFFFF8FAB),
+    Color(0xFFFFD6E0),
+  ];
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final sprites = this.sprites;
+    if (sprites == null) return;
+    final now = _clock.now;
+    for (final burst in _bursts) {
+      for (final (index, spark) in burst.sparks.indexed) {
+        final pose = burst.sparkAt(spark, now);
+        _draw(
+          canvas,
+          sprites.spark,
+          pose,
+          side: HeartBurst.size * pose.scale * _HeartSprites.sparkSpan,
+          tint: _sparkColors[index % _sparkColors.length],
+        );
+      }
+      final heart = burst.heartAt(now);
+      _draw(
+        canvas,
+        sprites.heart,
+        heart,
+        side: _HeartSprites.heartSide * heart.scale / _HeartSprites.heartScale,
+      );
+    }
+  }
+
+  /// [image] centred on [pose], [side] wide, tilted, faded and optionally
+  /// tinted.
+  static void _draw(
+    Canvas canvas,
+    ui.Image image,
+    ParticlePose pose, {
+    required double side,
+    Color? tint,
+  }) {
+    if (pose.opacity <= 0 || side <= 0) return;
+    final paint = Paint()
+      ..color = Color.fromRGBO(255, 255, 255, pose.opacity)
+      ..filterQuality = FilterQuality.medium
+      ..colorFilter = tint == null
+          ? null
+          : ColorFilter.mode(tint, BlendMode.srcIn);
+    canvas
+      ..save()
+      ..translate(pose.center.dx, pose.center.dy)
+      ..rotate(pose.rotation)
+      ..drawImageRect(
+        image,
+        Rect.fromLTWH(0, 0, image.width.toDouble(), image.height.toDouble()),
+        Rect.fromCenter(center: Offset.zero, width: side, height: side),
+        paint,
+      )
+      ..restore();
+  }
+
+  @override
+  bool shouldRepaint(_HeartBurstPainter oldDelegate) =>
+      !identical(oldDelegate._bursts, _bursts) ||
+      !identical(oldDelegate._clock, _clock);
+}
+
+/// The heart drawn once into images: the big heart with its gradient and
+/// shadow, and a small white heart that sparks are tinted from.
+///
+/// Each particle is then one textured quad a frame. A heart path with a
+/// live shadow cost a blur pass every frame, most of a double tap's GPU
+/// time on a mid-range phone.
+final class _HeartSprites {
+  _HeartSprites(this.ratio)
+    : heart = _render(ratio, heartSide, _drawHeart),
+      spark = _render(ratio, _sparkSide, _drawSpark);
+
+  /// Device pixels per logical pixel the images hold.
+  final double ratio;
+  final ui.Image heart;
+  final ui.Image spark;
+
+  /// The heart sprite holds the heart at this scale, so it stays sharp at
+  /// the pop's 1.2× peak.
+  static const double heartScale = 1.25;
+
+  /// Room around the heart for its shadow, in logical pixels.
+  static const double _shadowRoom = 16;
+
+  /// Side of the heart sprite, in logical pixels.
+  static const double heartSide =
+      HeartBurst.size * heartScale + _shadowRoom * 2;
+
+  /// Side of the spark sprite, in logical pixels: more than any spark.
+  static const double _sparkSide = 32;
+
+  /// The spark sprite's width over its heart's width.
+  static const double sparkSpan = _sparkSide / (_sparkSide - 2);
 
   static const List<Color> _heartColors = [
     Color(0xFFFF7A9C),
@@ -257,82 +368,67 @@ final class _HeartBurstPainter extends CustomPainter {
     Color(0xFFE0245E),
   ];
   static const List<double> _heartStops = [0, 0.55, 1];
-  static const List<Color> _sparkColors = [
-    AppColors.accent,
-    Color(0xFFFF8FAB),
-    Color(0xFFFFD6E0),
-  ];
   static const Color _shadow = Color(0x73000000);
   static const double _shadowElevation = 8;
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    final now = _clock.now;
-    for (final burst in _bursts) {
-      for (final (index, spark) in burst.sparks.indexed) {
-        _paintSpark(
-          canvas,
-          burst.sparkAt(spark, now),
-          _sparkColors[index % _sparkColors.length],
-        );
-      }
-      _paintHeart(canvas, burst.heartAt(now));
-    }
+  static _HeartSprites? _shared;
+
+  /// Sprites at [ratio], shared by every episode's layer.
+  static _HeartSprites of(double ratio) {
+    final shared = _shared;
+    if (shared != null && shared.ratio == ratio) return shared;
+    return _shared = _HeartSprites(ratio);
   }
 
-  void _paintHeart(Canvas canvas, ParticlePose pose) {
-    if (pose.opacity <= 0 || pose.scale <= 0) return;
-    // Built in screen space, so the shadow and gradient sit right however
-    // the heart is scaled and tilted.
-    final heart = _unitHeart.transform(_placement(pose));
+  static void _drawHeart(Canvas canvas) {
+    final heart = _scaled(_unitHeart, HeartBurst.size * heartScale);
     final bounds = heart.getBounds();
     canvas
-      ..drawShadow(
-        heart,
-        _shadow.withValues(alpha: _shadow.a * pose.opacity),
-        _shadowElevation,
-        true,
-      )
+      ..drawShadow(heart, _shadow, _shadowElevation, true)
       ..drawPath(
         heart,
         Paint()
-          ..shader = ui.Gradient.linear(bounds.topCenter, bounds.bottomCenter, [
-            for (final color in _heartColors)
-              color.withValues(alpha: pose.opacity),
-          ], _heartStops),
+          ..shader = ui.Gradient.linear(
+            bounds.topCenter,
+            bounds.bottomCenter,
+            _heartColors,
+            _heartStops,
+          ),
       );
   }
 
-  void _paintSpark(Canvas canvas, ParticlePose pose, Color color) {
-    if (pose.opacity <= 0 || pose.scale <= 0) return;
-    canvas
-      ..save()
-      ..transform(_placement(pose))
-      ..drawPath(
-        _unitHeart,
-        Paint()..color = color.withValues(alpha: pose.opacity),
-      )
-      ..restore();
+  static void _drawSpark(Canvas canvas) => canvas.drawPath(
+    _scaled(_unitHeart, _sparkSide - 2),
+    Paint()..color = const Color(0xFFFFFFFF),
+  );
+
+  /// A [side]-wide square image of [draw], centred on the origin.
+  static ui.Image _render(
+    double ratio,
+    double side,
+    void Function(Canvas canvas) draw,
+  ) {
+    final recorder = ui.PictureRecorder();
+    draw(
+      Canvas(recorder)
+        ..scale(ratio)
+        ..translate(side / 2, side / 2),
+    );
+    final picture = recorder.endRecording();
+    final pixels = (side * ratio).ceil();
+    final image = picture.toImageSync(pixels, pixels);
+    picture.dispose();
+    return image;
   }
 
-  /// Moves a unit heart to [pose]: scaled, tilted, then centred on it.
-  static Float64List _placement(ParticlePose pose) {
-    final scale = HeartBurst.size * pose.scale;
-    final cos = math.cos(pose.rotation) * scale;
-    final sin = math.sin(pose.rotation) * scale;
-    // Column-major 4×4.
-    return Float64List.fromList([
-      cos, sin, 0, 0, //
-      -sin, cos, 0, 0,
+  static Path _scaled(Path path, double factor) => path.transform(
+    Float64List.fromList([
+      factor, 0, 0, 0, //
+      0, factor, 0, 0,
       0, 0, 1, 0,
-      pose.center.dx, pose.center.dy, 0, 1,
-    ]);
-  }
-
-  @override
-  bool shouldRepaint(_HeartBurstPainter oldDelegate) =>
-      !identical(oldDelegate._bursts, _bursts) ||
-      !identical(oldDelegate._clock, _clock);
+      0, 0, 0, 1,
+    ]),
+  );
 }
 
 /// A heart one unit wide, centred on the origin. It is the outline of

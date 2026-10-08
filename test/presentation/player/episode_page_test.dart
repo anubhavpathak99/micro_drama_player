@@ -8,6 +8,7 @@ import 'package:micro_drama_interactive_player/data/episode_repository.dart';
 import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_page.dart';
+import 'package:micro_drama_interactive_player/presentation/player/video_surface.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/branded_skeleton.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/shimmer.dart';
 
@@ -232,6 +233,86 @@ void main() {
 
       expect(pool.calls, ['retry ep-01']);
       expect(find.text('Episode 1'), findsOneWidget);
+    });
+  });
+
+  group('EpisodePage rebuilds', () {
+    testWidgets('a player arriving rebuilds only what shows it', (
+      tester,
+    ) async {
+      final pool = await pumpEpisode(tester, const PlayerPoolState());
+      final rebuilt = <String>{};
+      debugOnRebuildDirtyWidget = (element, _) =>
+          rebuilt.add(element.widget.runtimeType.toString());
+      addTearDown(() => debugOnRebuildDirtyWidget = null);
+
+      pool.emit(
+        PlayerPoolState(
+          slots: {'ep-01': PlayerReady(await readyController())},
+          activeId: 'ep-01',
+        ),
+      );
+      await tester.pump();
+
+      expect(rebuilt, contains('EpisodePage'));
+      expect(find.byType(VideoSurface), findsOneWidget);
+      expect(rebuilt, isNot(contains('EpisodeOverlay')));
+      expect(rebuilt, isNot(contains('ActionRail')));
+      expect(rebuilt, isNot(contains('_Poster')));
+    });
+  });
+
+  group('EpisodePage scrubbing', () {
+    testWidgets('a horizontal drag scrubs through the pool', (tester) async {
+      final pool = await pumpEpisode(
+        tester,
+        PlayerPoolState(
+          slots: {'ep-01': PlayerReady(await readyController())},
+          activeId: 'ep-01',
+        ),
+      );
+
+      await Finger(
+        tester,
+      ).drag(tester.getCenter(find.byType(EpisodePage)), const Offset(240, 0));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(pool.calls.first, 'scrub ep-01');
+      expect(pool.calls, contains(startsWith('seek ep-01')));
+      expect(pool.calls.last, startsWith('end scrub ep-01'));
+    });
+
+    testWidgets('the chrome and the play glyph step aside', (tester) async {
+      await pumpEpisode(
+        tester,
+        PlayerPoolState(
+          slots: {'ep-01': PlayerReady(await readyController())},
+          activeId: 'ep-01',
+          userPaused: true,
+          scrubbing: true,
+        ),
+      );
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(find.text('EP 1').hitTestable(), findsNothing);
+      expect(find.bySemanticsLabel('Like').hitTestable(), findsNothing);
+      expect(find.byIcon(Icons.play_arrow_rounded), findsNothing);
+    });
+
+    testWidgets('a locked episode cannot be scrubbed', (tester) async {
+      usePhoneSurface(tester);
+      final pool = await pumpEpisode(
+        tester,
+        PlayerPoolState(slots: {'ep-07': PlayerReady(await readyController())}),
+        episode: fakeEpisode(7, isPremium: true),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+
+      await Finger(tester).drag(const Offset(60, 120), const Offset(240, 0));
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(pool.calls, isNot(contains('scrub ep-07')));
     });
   });
 

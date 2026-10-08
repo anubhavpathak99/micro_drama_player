@@ -2,9 +2,12 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:micro_drama_interactive_player/application/debug_settings.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_window.dart';
+import 'package:micro_drama_interactive_player/core/analytics/analytics_service.dart';
+import 'package:micro_drama_interactive_player/core/diagnostics/lifecycle_log.dart';
 import 'package:micro_drama_interactive_player/data/video_cache.dart';
 import 'package:micro_drama_interactive_player/data/video_controller_factory.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
@@ -58,6 +61,9 @@ enum SuspendReason {
 
   /// Another route covers the feed.
   routeCovered,
+
+  /// The user is scrubbing the playing episode.
+  scrubbing,
 }
 
 /// What the UI needs to know about the pool.
@@ -68,6 +74,7 @@ final class PlayerPoolState {
     this.activeId,
     this.userPaused = false,
     this.suspended = false,
+    this.scrubbing = false,
   });
 
   /// One slot per episode inside the player window, keyed by episode id.
@@ -82,6 +89,10 @@ final class PlayerPoolState {
 
   /// Playback is on hold for at least one [SuspendReason].
   final bool suspended;
+
+  /// The user is scrubbing [activeId]. The feed holds still and the
+  /// episode's chrome steps aside until the scrub ends.
+  final bool scrubbing;
 }
 
 /// Owns every [VideoPlayerController] in the app.
@@ -107,6 +118,8 @@ class PlayerPool extends Notifier<PlayerPoolState> {
   FeedState? _feed;
   String? _activeId;
   bool _userPaused = false;
+  // Where the scrub under way started, for its analytics event.
+  Duration? _scrubFrom;
 
   @override
   PlayerPoolState build() {
@@ -131,6 +144,38 @@ class PlayerPool extends Notifier<PlayerPoolState> {
     _userPaused = !_userPaused;
     _applyPlayback();
     _publish();
+  }
+
+  /// Starts a scrub of the playing episode. Playback holds until
+  /// [endScrub].
+  void beginScrub(String episodeId) {
+    if (episodeId != _activeId) return;
+    _scrubFrom = _activeController(episodeId)?.value.position;
+    suspend(SuspendReason.scrubbing);
+  }
+
+  /// Seeks the playing episode, as a scrub moves along.
+  void seek(String episodeId, Duration position) {
+    final controller = _activeController(episodeId);
+    if (controller != null) unawaited(controller.seekTo(position));
+  }
+
+  /// Ends a scrub with an exact seek to [position], then lets playback go
+  /// on. Completes once the player has taken the seek.
+  Future<void> endScrub(String episodeId, Duration position) async {
+    // The seek is sent before playback resumes, so the player plays on
+    // from the new position.
+    final seek = _activeController(episodeId)?.seekTo(position);
+    if (_scrubFrom case final from?) {
+      ref.read(analyticsProvider).log(AnalyticsEvents.scrub, {
+        'episode': episodeId,
+        'from_ms': from.inMilliseconds,
+        'to_ms': position.inMilliseconds,
+      });
+    }
+    _scrubFrom = null;
+    resume(SuspendReason.scrubbing);
+    await seek;
   }
 
   /// Starts over for an episode whose player failed.
@@ -168,6 +213,9 @@ class PlayerPool extends Notifier<PlayerPoolState> {
       }
     }
   }
+
+  VideoPlayerController? _activeController(String episodeId) =>
+      episodeId == _activeId ? _players[episodeId]?.readyController : null;
 
   @visibleForTesting
   int get liveControllerCount =>
@@ -219,6 +267,10 @@ class PlayerPool extends Notifier<PlayerPoolState> {
     try {
       final cached = await _cache.cachedFile(url);
       if (player.disposed) return;
+      if (ref.read(debugSettingsProvider).slowNetwork) {
+        await Future<void>.delayed(DebugSettings.slowNetworkDelay);
+        if (player.disposed) return;
+      }
       // Hard guard, independent of the window: never construct a controller
       // for a locked episode, not even a paused one.
       if (!ref.read(paywallControllerProvider).canPrepare(player.episode)) {
@@ -230,6 +282,7 @@ class PlayerPool extends Notifier<PlayerPoolState> {
       final controller = player.controller = cached != null
           ? _factory.fromFile(cached)
           : _factory.fromNetwork(url);
+      LifecycleLog.opened(LifecycleKind.player, player.id);
       await controller.initialize().timeout(initTimeout);
       if (player.disposed) return;
       await controller.setLooping(true);
@@ -280,6 +333,7 @@ class PlayerPool extends Notifier<PlayerPoolState> {
     activeId: _activeId,
     userPaused: _userPaused,
     suspended: _suspensions.isNotEmpty,
+    scrubbing: _suspensions.contains(SuspendReason.scrubbing),
   );
 
   void _disposeAll() {
@@ -323,7 +377,10 @@ final class _Player {
     this.controller = null;
     // Deferred: release can run inside the controller's own listener (an
     // error report), and a notifier must not be disposed while notifying.
-    scheduleMicrotask(() => unawaited(controller.dispose()));
+    scheduleMicrotask(() {
+      unawaited(controller.dispose());
+      LifecycleLog.closed(LifecycleKind.player, id);
+    });
   }
 
   void dispose() {

@@ -1,17 +1,18 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:micro_drama_interactive_player/application/ad_preloader.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/application/view_tracker.dart';
 import 'package:micro_drama_interactive_player/core/motion/motion_tokens.dart';
+import 'package:micro_drama_interactive_player/core/motion/reduced_motion.dart';
 import 'package:micro_drama_interactive_player/core/theme/app_theme.dart';
 import 'package:micro_drama_interactive_player/domain/feed_item.dart';
 import 'package:micro_drama_interactive_player/presentation/ads/ad_page.dart';
-import 'package:micro_drama_interactive_player/presentation/debug/debug_panel.dart';
+import 'package:micro_drama_interactive_player/presentation/feed/feed_logo.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/feed_scroll_behavior.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/feed_scroll_physics.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/paywall_lock_physics.dart';
@@ -43,13 +44,9 @@ class FeedScreen extends ConsumerWidget {
               ),
               AsyncLoading() => const DelayedReveal(child: BrandedSkeleton()),
             },
-            if (kDebugMode || kProfileMode)
-              const SafeArea(
-                child: Align(
-                  alignment: Alignment.topRight,
-                  child: DebugPanelButton(),
-                ),
-              ),
+            const SafeArea(
+              child: Align(alignment: Alignment.topCenter, child: FeedLogo()),
+            ),
           ],
         ),
       ),
@@ -72,6 +69,9 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
   late final PageController _pages;
   late final AppLifecycleListener _lifecycle;
   late Map<String, int> _indexById = _indexItems();
+  // Rebuilt only for a new item list: a rebuild that just swaps the physics
+  // (a scrub, a moved lock) then leaves every page alone.
+  late SliverChildBuilderDelegate _pagesDelegate = _delegateFor(widget.items);
   ModalRoute<void>? _route;
 
   // The physics in use and what they were built from. New instances are made
@@ -94,7 +94,10 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
     _pages = PageController(
       initialPage: ref.read(feedControllerProvider).requireValue.currentIndex,
     );
-    _pager = _PageControllerPager(_pages);
+    _pager = _PageControllerPager(
+      _pages,
+      reduceMotion: () => mounted && context.reduceMotion,
+    );
     _feed = ref.read(feedControllerProvider.notifier)..attachPager(_pager);
     _lifecycle = AppLifecycleListener(onStateChange: _onLifecycleChanged);
     ref
@@ -104,7 +107,8 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
       )
       // Keeps the ad preloader running from the start, so the first slot
       // loads before the user gets near it.
-      ..listenManual(adPreloaderProvider, (_, _) {});
+      ..listenManual(adPreloaderProvider, (_, _) {})
+      ..listenManual(viewTrackerProvider, (_, _) {});
   }
 
   @override
@@ -122,7 +126,10 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
   @override
   void didUpdateWidget(_FeedPager oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (!identical(widget.items, oldWidget.items)) _indexById = _indexItems();
+    if (!identical(widget.items, oldWidget.items)) {
+      _indexById = _indexItems();
+      _pagesDelegate = _delegateFor(widget.items);
+    }
   }
 
   @override
@@ -133,6 +140,19 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
     _pages.dispose();
     super.dispose();
   }
+
+  SliverChildBuilderDelegate _delegateFor(List<FeedItem> items) =>
+      SliverChildBuilderDelegate(
+        (context, index) =>
+            FeedPage(key: ValueKey(items[index].id), item: items[index]),
+        childCount: items.length,
+        findChildIndexCallback: (key) =>
+            _indexById[(key as ValueKey<String>).value],
+        // Pages hold no state worth keeping alive (the pool owns players),
+        // and FeedPage adds its own repaint boundary.
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: false,
+      );
 
   Map<String, int> _indexItems() => {
     for (final (index, item) in widget.items.indexed) item.id: index,
@@ -209,12 +229,17 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
 
   @override
   Widget build(BuildContext context) {
-    final items = widget.items;
     // Recomputed every build: removing an ad shifts the locked page's index.
     final lockedItemId = ref.watch(
       paywallControllerProvider.select((paywall) => paywall.lockedItemId),
     );
-    final physics = _physicsFor(_indexById[lockedItemId]);
+    // A scrub owns the drag on its page: the feed holds still until it ends.
+    final scrubbing = ref.watch(
+      playerPoolProvider.select((pool) => pool.scrubbing),
+    );
+    final physics = scrubbing
+        ? const NeverScrollableScrollPhysics()
+        : _physicsFor(_indexById[lockedItemId]);
     return NotificationListener<ScrollEndNotification>(
       onNotification: _onScrollEnd,
       child: Listener(
@@ -233,17 +258,7 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
           scrollBehavior: FeedScrollBehavior(_lifts)
               .copyWith(scrollbars: false, physics: physics),
           onPageChanged: _onPageChanged,
-          childrenDelegate: SliverChildBuilderDelegate(
-            (context, index) =>
-                FeedPage(key: ValueKey(items[index].id), item: items[index]),
-            childCount: items.length,
-            findChildIndexCallback: (key) =>
-                _indexById[(key as ValueKey<String>).value],
-            // Pages hold no state worth keeping alive (the pool owns
-            // players), and FeedPage adds its own repaint boundary.
-            addAutomaticKeepAlives: false,
-            addRepaintBoundaries: false,
-          ),
+          childrenDelegate: _pagesDelegate,
         ),
       ),
     );
@@ -252,9 +267,12 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
 
 /// [FeedPager] over the feed's PageController.
 final class _PageControllerPager implements FeedPager {
-  _PageControllerPager(this._pages);
+  _PageControllerPager(this._pages, {required this.reduceMotion});
 
   final PageController _pages;
+
+  /// Whether the OS asks for reduced motion right now.
+  final bool Function() reduceMotion;
 
   @override
   bool get isScrolling =>
@@ -265,6 +283,8 @@ final class _PageControllerPager implements FeedPager {
     // The page being left fades its skeleton out first.
     await Future<void>.delayed(MotionDurations.adNoFillFade);
     if (!_pages.hasClients) return;
+    // Under reduced motion the next page replaces the faded one in place.
+    if (reduceMotion()) return _pages.jumpToPage(index);
     await _pages.animateToPage(
       index,
       duration: MotionDurations.adNoFillSkip,

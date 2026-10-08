@@ -1,5 +1,6 @@
 import 'package:flutter/widgets.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_layout.dart';
+import 'package:micro_drama_interactive_player/presentation/shared/brand_mark.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/shimmer.dart';
 
 /// Branded loading ghost, used instead of a spinner: the app's mark, plus
@@ -32,7 +33,7 @@ class _GhostPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     canvas.drawPath(
-      _brandMark(
+      brandMarkPath(
         Rect.fromCenter(
           center: size.center(Offset.zero),
           width: EpisodeLayout.brandMark,
@@ -106,19 +107,6 @@ class _GhostPainter extends CustomPainter {
     ),
     _fill,
   );
-
-  /// The brand mark: a rounded badge with a play glyph cut out of it.
-  static Path _brandMark(Rect rect) {
-    final side = rect.shortestSide;
-    final center = rect.center;
-    return Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRRect(RRect.fromRectAndRadius(rect, Radius.circular(side * 0.28)))
-      ..moveTo(center.dx - side * 0.12, center.dy - side * 0.19)
-      ..lineTo(center.dx + side * 0.2, center.dy)
-      ..lineTo(center.dx - side * 0.12, center.dy + side * 0.19)
-      ..close();
-  }
 
   @override
   bool shouldRepaint(_GhostPainter oldDelegate) => oldDelegate.insets != insets;

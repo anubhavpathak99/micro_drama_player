@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -16,6 +15,7 @@ import 'package:micro_drama_interactive_player/domain/episode.dart';
 import 'package:micro_drama_interactive_player/domain/unlock_state.dart';
 import 'package:micro_drama_interactive_player/presentation/paywall/paywall_motion.dart';
 import 'package:micro_drama_interactive_player/presentation/paywall/shimmer_cta.dart';
+import 'package:micro_drama_interactive_player/presentation/shared/blurred_poster.dart';
 
 /// Card content that enters one group after another: heading, perks, price
 /// and actions.
@@ -260,13 +260,15 @@ class _PaywallOverlayState extends ConsumerState<PaywallOverlay>
       container: true,
       label: 'Episode ${_episode.number} is locked',
       child: GestureDetector(
-        // Taps on the backdrop must not reach the page beneath.
+        // Taps on the backdrop must not reach the page beneath. Screen
+        // readers get no tap here: it would do nothing.
         behavior: HitTestBehavior.opaque,
+        excludeFromSemantics: true,
         onTap: () {},
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _Backdrop(strength: _card),
+            _Backdrop(strength: _card, poster: _episode.posterAsset),
             Positioned(
               left: 0,
               right: 0,
@@ -301,41 +303,46 @@ class _PaywallOverlayState extends ConsumerState<PaywallOverlay>
 }
 
 /// The page beneath, blurred and darkened in step with the card.
+///
+/// Behind a locked episode there is only its poster, so the blur is the
+/// poster's, made once off the UI thread and faded in. A live
+/// [BackdropFilter] here re-blurred the whole screen every frame.
 class _Backdrop extends StatelessWidget {
-  const _Backdrop({required this.strength});
+  const _Backdrop({required this.strength, required this.poster});
 
   /// Card position; values past 1 (overshoot) count as full strength.
   final Animation<double> strength;
 
+  /// The locked episode's poster asset.
+  final String poster;
+
   // Darker at the top too, so the status bar stays legible over a bright
   // blurred poster.
-  static const List<double> _scrimAlphas = [0.45, 0.5, 0.85];
+  static const Gradient _scrim = LinearGradient(
+    begin: Alignment.topCenter,
+    end: Alignment.bottomCenter,
+    colors: [
+      Color.fromRGBO(0, 0, 0, 0.45),
+      Color.fromRGBO(0, 0, 0, 0.5),
+      Color.fromRGBO(0, 0, 0, 0.85),
+    ],
+  );
 
+  // Two fades rather than one over both: each covers a single draw, so
+  // neither needs an offscreen layer.
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
-    animation: strength,
-    builder: (context, _) {
-      final amount = strength.value.clamp(0.0, 1.0);
-      if (amount == 0) return const SizedBox.shrink();
-      final sigma = MotionValues.paywallBlurSigma * amount;
-      return ClipRect(
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  for (final alpha in _scrimAlphas)
-                    Color.fromRGBO(0, 0, 0, alpha * amount),
-                ],
-              ),
-            ),
-          ),
-        ),
-      );
-    },
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      FadeTransition(
+        opacity: strength,
+        child: BlurredPoster(asset: poster),
+      ),
+      FadeTransition(
+        opacity: strength,
+        child: const DecoratedBox(decoration: BoxDecoration(gradient: _scrim)),
+      ),
+    ],
   );
 }
 
@@ -403,6 +410,7 @@ class _PaywallCard extends StatelessWidget {
             group(
               3,
               _Actions(
+                episode: episode,
                 phase: phase,
                 entered: entered,
                 message: message,
@@ -542,6 +550,10 @@ class _Perks extends StatelessWidget {
   );
 }
 
+/// What an episode unlock costs, shown on the card and read out with the
+/// Unlock button.
+const String _price = r'$0.99';
+
 class _Price extends StatelessWidget {
   const _Price();
 
@@ -551,7 +563,7 @@ class _Price extends StatelessWidget {
     textBaseline: TextBaseline.alphabetic,
     children: [
       Text(
-        r'$0.99',
+        _price,
         style: TextStyle(
           color: AppColors.onMedia,
           fontSize: 28,
@@ -569,6 +581,7 @@ class _Price extends StatelessWidget {
 
 class _Actions extends StatelessWidget {
   const _Actions({
+    required this.episode,
     required this.phase,
     required this.entered,
     required this.message,
@@ -576,6 +589,7 @@ class _Actions extends StatelessWidget {
     required this.onWatchAd,
   });
 
+  final Episode episode;
   final CtaPhase phase;
   final ValueListenable<bool> entered;
   final String? message;
@@ -599,6 +613,9 @@ class _Actions extends StatelessWidget {
         valueListenable: entered,
         builder: (context, entered, _) => ShimmerCta(
           label: 'Unlock Episode',
+          semanticLabel:
+              'Unlock episode ${episode.number}, ${episode.title}, '
+              'for $_price',
           phase: phase,
           onPressed: onUnlock,
           shimmer: entered,

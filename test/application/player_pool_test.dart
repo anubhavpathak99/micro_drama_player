@@ -2,15 +2,18 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:micro_drama_interactive_player/application/debug_settings.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/core/analytics/analytics_service.dart';
 import 'package:micro_drama_interactive_player/data/episode_repository.dart';
 import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/data/video_cache.dart';
 import 'package:micro_drama_interactive_player/data/video_controller_factory.dart';
 
 import '../support/episode_fixtures.dart';
+import '../support/fake_ads.dart';
 import '../support/fake_unlocks.dart';
 import '../support/fake_video.dart';
 
@@ -29,11 +32,13 @@ class PoolHarness {
         videoControllerFactoryProvider.overrideWithValue(factory),
         videoCacheProvider.overrideWithValue(cache),
         unlockRepositoryProvider.overrideWithValue(this.unlocks),
+        analyticsProvider.overrideWithValue(analytics),
       ],
     );
   }
 
   final FakeVideoControllerFactory factory = FakeVideoControllerFactory();
+  final FakeAnalytics analytics = FakeAnalytics();
   final FakeVideoCache cache;
   final FakeUnlockRepository unlocks;
   late final ProviderContainer container;
@@ -369,6 +374,116 @@ void main() {
       await settle();
 
       expect(h.factory.live, isEmpty);
+    });
+  });
+  group('PlayerPool scrubbing', () {
+    test('holds playback, seeks, then plays on from where it ended', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+
+      h.players.beginScrub('ep-01');
+      await settle();
+      expect(h.pool.scrubbing, isTrue);
+      expect(first.value.isPlaying, isFalse);
+
+      h.players.seek('ep-01', const Duration(seconds: 4));
+      await settle();
+      expect(first.value.position, const Duration(seconds: 4));
+
+      await h.players.endScrub('ep-01', const Duration(milliseconds: 6500));
+      await settle();
+      expect(h.pool.scrubbing, isFalse);
+      expect(first.value.isPlaying, isTrue);
+      expect(
+        first.commands,
+        containsAllInOrder(['pause', 'seekTo 4000', 'seekTo 6500', 'play']),
+      );
+    });
+
+    test('keeps a pause the user made', () async {
+      final h = await started();
+      final first = h.factory.liveFor('ep-01')!;
+
+      h.players
+        ..togglePlayback('ep-01')
+        ..beginScrub('ep-01');
+      await h.players.endScrub('ep-01', const Duration(seconds: 2));
+      await settle();
+
+      expect(first.value.isPlaying, isFalse);
+      expect(first.value.position, const Duration(seconds: 2));
+    });
+
+    test('logs where each scrub started and ended', () async {
+      final h = await started();
+      await h.factory.liveFor('ep-01')!.seekTo(const Duration(seconds: 3));
+
+      h.players
+        ..beginScrub('ep-01')
+        ..seek('ep-01', const Duration(seconds: 5));
+      await h.players.endScrub('ep-01', const Duration(seconds: 9));
+      // A stray end with no scrub under way logs nothing.
+      await h.players.endScrub('ep-01', const Duration(seconds: 1));
+
+      expect(h.analytics.parametersOf('scrub'), [
+        {'episode': 'ep-01', 'from_ms': 3000, 'to_ms': 9000},
+      ]);
+    });
+
+    test('only scrubs the episode that is playing', () async {
+      final h = await started();
+      final next = h.factory.liveFor('ep-02')!;
+
+      h.players
+        ..beginScrub('ep-02')
+        ..seek('ep-02', const Duration(seconds: 4));
+      await settle();
+
+      expect(h.pool.scrubbing, isFalse);
+      expect(next.commands, isNot(contains('seekTo 4000')));
+    });
+  });
+
+  group('PlayerPool slow network', () {
+    testWidgets('holds each player in loading for the simulated delay', (
+      tester,
+    ) async {
+      final h = PoolHarness();
+      h.container.read(debugSettingsProvider.notifier).setSlowNetwork(true);
+      // On fake time settle() would wait forever, so pump instead.
+      await h.container.read(feedControllerProvider.future);
+      h.container.listen(playerPoolProvider, (_, _) {});
+      await tester.pump();
+
+      await tester.pump(
+        DebugSettings.slowNetworkDelay - const Duration(milliseconds: 1),
+      );
+      expect(h.pool.slots['ep-01'], isA<PlayerLoading>());
+      expect(h.factory.created, isEmpty);
+
+      await tester.pump(const Duration(milliseconds: 1));
+      await tester.pump();
+      expect(h.pool.slots['ep-01'], isA<PlayerReady>());
+      expect(h.factory.liveFor('ep-01')!.value.isPlaying, isTrue);
+    });
+
+    testWidgets('a player that leaves during the delay is never created', (
+      tester,
+    ) async {
+      final h = PoolHarness();
+      h.container.read(debugSettingsProvider.notifier).setSlowNetwork(true);
+      await h.container.read(feedControllerProvider.future);
+      h.container.listen(playerPoolProvider, (_, _) {});
+      await tester.pump();
+
+      // ep-02 leaves the window (current ±1) when the feed jumps to ep-05.
+      h.container.read(feedControllerProvider.notifier).setCurrent('ep-05');
+      await tester.pump(DebugSettings.slowNetworkDelay);
+      await tester.pump();
+
+      expect(h.factory.createdFor('ep-01'), isEmpty);
+      expect(h.factory.createdFor('ep-02'), isEmpty);
+      expect(h.pool.slots['ep-05'], isA<PlayerReady>());
     });
   });
 }

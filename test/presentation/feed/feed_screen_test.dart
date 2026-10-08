@@ -9,6 +9,7 @@ import 'package:micro_drama_interactive_player/data/ad_repository.dart';
 import 'package:micro_drama_interactive_player/data/episode_repository.dart';
 import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
+import 'package:micro_drama_interactive_player/presentation/feed/feed_logo.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/feed_screen.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_page.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/app_route_observer.dart';
@@ -106,7 +107,7 @@ void main() {
   testWidgets('pauses while another route covers the feed', (tester) async {
     final pool = await pumpFeed(tester);
 
-    await tester.tap(find.text('DEV'));
+    await tester.longPress(find.byType(FeedLogo));
     await tester.pumpAndSettle();
     expect(pool.calls, contains('suspend routeCovered'));
 
@@ -183,6 +184,62 @@ void main() {
 
       expect(currentId(tester), 'ep-01');
     });
+  });
+
+  testWidgets('decodes posters up to two pages either side', (tester) async {
+    await pumpFeed(tester);
+    final context = tester.element(find.byType(PageView));
+    Future<bool> cached(int episode) async {
+      final number = episode.toString().padLeft(2, '0');
+      final key = await AssetImage('assets/posters/ep-$number.jpg')
+          .obtainKey(createLocalImageConfiguration(context));
+      return PaintingBinding.instance.imageCache.statusForKey(key).tracked;
+    }
+
+    // On E1 (page 0): E2 and E3 lie ahead, then the ad and E4.
+    expect(await cached(1), isTrue);
+    expect(await cached(2), isTrue);
+    expect(await cached(3), isTrue);
+    expect(await cached(4), isFalse);
+
+    // On E3 (page 2): E4 is now two pages away.
+    await fling(tester);
+    await fling(tester);
+    expect(currentId(tester), 'ep-03');
+    expect(await cached(4), isTrue);
+    expect(await cached(5), isFalse);
+  });
+
+  testWidgets('a scrub starting or ending leaves the pages alone', (
+    tester,
+  ) async {
+    final pool = await pumpFeed(tester);
+    final rebuilt = <String>{};
+    debugOnRebuildDirtyWidget = (element, _) =>
+        rebuilt.add(element.widget.runtimeType.toString());
+    addTearDown(() => debugOnRebuildDirtyWidget = null);
+
+    pool.emit(const PlayerPoolState(scrubbing: true));
+    await tester.pump();
+    pool.emit(const PlayerPoolState());
+    await tester.pump();
+
+    expect(rebuilt, isNot(contains('FeedPage')));
+    expect(rebuilt, isNot(contains('EpisodePage')));
+  });
+
+  testWidgets('holds still while a scrub runs', (tester) async {
+    final pool = await pumpFeed(tester);
+
+    pool.emit(const PlayerPoolState(scrubbing: true));
+    await tester.pump();
+    await fling(tester);
+    expect(currentId(tester), 'ep-01');
+
+    pool.emit(const PlayerPoolState());
+    await tester.pump();
+    await fling(tester);
+    expect(currentId(tester), 'ep-02');
   });
 
   group('paywall barrier', () {

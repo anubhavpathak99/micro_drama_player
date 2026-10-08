@@ -150,6 +150,10 @@ abstract final class MotionGestures {
   /// logical pixels.
   static const double doubleTapSlop = 40;
 
+  /// The most often a scrub seeks the video while the finger moves. The
+  /// exact seek comes when the finger lifts.
+  static const Duration scrubSeekInterval = Duration(milliseconds: 80);
+
   /// A finger that rests this long before lifting has stopped, so its lift
   /// is not a fling. The same threshold as Flutter's own velocity tracker.
   static const Duration stillBeforeLift = Duration(milliseconds: 40);
@@ -161,9 +165,6 @@ abstract final class MotionGestures {
 
 /// Distances, scales and strengths that animations move between.
 abstract final class MotionValues {
-  /// Backdrop blur behind the paywall card, at full strength.
-  static const double paywallBlurSigma = 20;
-
   /// Share of the paywall card already showing when its page has scrolled
   /// fully into view, before the entrance spring takes over.
   static const double paywallPeek = 0.3;
@@ -182,4 +183,7 @@ abstract final class MotionValues {
 
   /// How far the small hearts of a burst fly, in logical pixels.
   static const double heartSparkTravel = 56;
+
+  /// Scale the scrub time bubble springs in from.
+  static const double scrubBubbleScaleFrom = 0.8;
 }

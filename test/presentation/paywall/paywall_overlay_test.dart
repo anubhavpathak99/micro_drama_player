@@ -14,6 +14,7 @@ import 'package:micro_drama_interactive_player/data/video_cache.dart';
 import 'package:micro_drama_interactive_player/data/video_controller_factory.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/feed_screen.dart';
 import 'package:micro_drama_interactive_player/presentation/paywall/paywall_overlay.dart';
+import 'package:micro_drama_interactive_player/presentation/paywall/shimmer_cta.dart';
 
 import '../../support/episode_fixtures.dart';
 import '../../support/fake_ads.dart';
@@ -259,5 +260,53 @@ void main() {
       findsNothing,
     );
     expect(find.text('Unlock Episode').hitTestable(), findsOneWidget);
+  });
+
+  testWidgets('screen readers hear the episode and price, and can unlock', (
+    tester,
+  ) async {
+    final semantics = tester.ensureSemantics();
+    final unlocks = FakeUnlockRepository()..purchase = Completer<void>();
+    await pumpFeed(tester, unlocks: unlocks);
+    await goToLockedEpisode(tester);
+    final unlock = find.semantics.byLabel(
+      r'Unlock episode 7, Episode 7, for $0.99',
+    );
+
+    expect(
+      tester.getSemantics(find.byType(ShimmerCta)),
+      isSemantics(isButton: true, isEnabled: true, hasTapAction: true),
+    );
+    tester.semantics.tap(unlock);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.bySemanticsLabel('Unlocking'), findsOneWidget);
+    unlocks.purchase!.complete();
+    await settle(tester);
+    semantics.dispose();
+  });
+
+  testWidgets('logs the paywall when E7 comes on screen', (tester) async {
+    await pumpFeed(tester);
+    await goToLockedEpisode(tester);
+    final analytics =
+        containerOf(tester).read(analyticsProvider) as FakeAnalytics;
+
+    expect(analytics.parametersOf('paywall_shown'), [
+      {'episode': 'ep-07'},
+    ]);
+    expect(analytics.parametersOf('episode_view').last, {
+      'episode': 'ep-07',
+      'position': 8,
+      'locked': true,
+    });
+
+    await tester.tap(find.text('Unlock Episode'));
+    await settle(tester);
+    expect(
+      analytics.names,
+      containsAllInOrder(['unlock_tap', 'unlock_success']),
+    );
   });
 }

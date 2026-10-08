@@ -10,6 +10,7 @@ import 'package:micro_drama_interactive_player/core/motion/motion_tokens.dart';
 import 'package:micro_drama_interactive_player/core/theme/app_theme.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
 import 'package:micro_drama_interactive_player/presentation/gestures/heart_burst_layer.dart';
+import 'package:micro_drama_interactive_player/presentation/gestures/scrub_bar.dart';
 import 'package:micro_drama_interactive_player/presentation/paywall/paywall_overlay.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_overlay.dart';
 import 'package:micro_drama_interactive_player/presentation/player/play_pause_indicator.dart';
@@ -24,7 +25,8 @@ import 'package:video_player/video_player.dart';
 /// the play/pause glyph and, on failure, an in-place retry.
 ///
 /// A tap anywhere outside the rail toggles playback once the double-tap
-/// window has passed. A double tap likes the episode with a burst of hearts.
+/// window has passed. A double tap likes the episode with a burst of hearts,
+/// and a horizontal drag scrubs through it while the chrome steps aside.
 class EpisodePage extends ConsumerStatefulWidget {
   const EpisodePage({super.key, required this.episode});
 
@@ -44,11 +46,22 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
   VideoPlayerController? _observed;
   Duration? _lastPosition;
 
+  // The parts of the page that depend on nothing it watches. Built once, so
+  // a rebuild (a player arriving, a scrub starting) leaves them alone.
+  late final Widget _loadingLayer = FadeReveal(
+    visible: _loading,
+    child: const _LoadingLayer(),
+  );
+  late Widget _poster;
+  late Widget _overlay;
+  Widget? _paywall;
+
   String get _id => widget.episode.id;
 
   @override
   void initState() {
     super.initState();
+    _buildStaticParts();
     ref.listenManual(
       playerPoolProvider.select(
         (pool) => (slot: pool.slots[_id], active: pool.activeId == _id),
@@ -59,10 +72,23 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
   }
 
   @override
+  void didUpdateWidget(EpisodePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.episode != oldWidget.episode) _buildStaticParts();
+  }
+
+  @override
   void dispose() {
     _observe(null);
     _loading.dispose();
     super.dispose();
+  }
+
+  void _buildStaticParts() {
+    final episode = widget.episode;
+    _poster = _Poster(asset: episode.posterAsset);
+    _overlay = EpisodeOverlay(episode: episode);
+    _paywall = episode.isPremium ? PaywallOverlay(episode: episode) : null;
   }
 
   void _onPlayerChanged(PlayerSlot? slot, {required bool active}) {
@@ -104,7 +130,9 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
   // Every heart of a double tap and its combo. Liking is idempotent: the
   // episode stays liked however many hearts go up.
   void _like() {
-    ref.read(likedEpisodesProvider.notifier).add(_id);
+    ref
+        .read(likedEpisodesProvider.notifier)
+        .add(_id, source: FlagSource.doubleTap);
     unawaited(Haptics.toggle());
   }
 
@@ -119,6 +147,11 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
         (pool) => pool.activeId == _id && pool.userPaused,
       ),
     );
+    final scrubbing = ref.watch(
+      playerPoolProvider.select(
+        (pool) => pool.activeId == _id && pool.scrubbing,
+      ),
+    );
     // Behind the paywall (locked, or unlocking until its exit finishes) the
     // card replaces the episode chrome.
     final gated = ref.watch(
@@ -130,31 +163,46 @@ class _EpisodePageState extends ConsumerState<EpisodePage> {
       enabled: !gated,
       onSingleTap: slot is PlayerReady ? () => pool.togglePlayback(_id) : null,
       onHeart: _like,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          _Poster(asset: episode.posterAsset),
-          if (slot case PlayerReady(:final controller))
-            VideoSurface(key: ObjectKey(controller), controller: controller),
-          FadeReveal(visible: _loading, child: const _LoadingLayer()),
-          ValueListenableBuilder<bool>(
-            valueListenable: _loading,
-            builder: (context, loading, chrome) => IgnorePointer(
-              ignoring: loading || gated,
-              child: AnimatedOpacity(
-                opacity: loading || gated ? 0 : 1,
-                duration: MotionDurations.medium,
-                curve: MotionCurves.fade,
-                child: chrome,
-              ),
+      child: ScrubBar(
+        controller: switch (slot) {
+          PlayerReady(:final controller) when !gated => controller,
+          _ => null,
+        },
+        onScrubStart: () => pool.beginScrub(_id),
+        onSeek: (position) => pool.seek(_id, position),
+        onScrubEnd: (position) => pool.endScrub(_id, position),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _poster,
+            if (slot case PlayerReady(:final controller))
+              VideoSurface(key: ObjectKey(controller), controller: controller),
+            _loadingLayer,
+            ValueListenableBuilder<bool>(
+              valueListenable: _loading,
+              builder: (context, loading, chrome) {
+                final hidden = loading || gated || scrubbing;
+                return IgnorePointer(
+                  ignoring: hidden,
+                  child: AnimatedOpacity(
+                    opacity: hidden ? 0 : 1,
+                    // Out of the way fast when a scrub starts.
+                    duration: scrubbing
+                        ? MotionDurations.fast
+                        : MotionDurations.medium,
+                    curve: MotionCurves.fade,
+                    child: chrome,
+                  ),
+                );
+              },
+              child: _overlay,
             ),
-            child: EpisodeOverlay(episode: episode),
-          ),
-          PlayPauseIndicator(paused: paused),
-          if (slot is PlayerFailed)
-            PlaybackErrorView(onRetry: () => pool.retry(_id)),
-          if (episode.isPremium) PaywallOverlay(episode: episode),
-        ],
+            PlayPauseIndicator(paused: paused && !scrubbing),
+            if (slot is PlayerFailed)
+              PlaybackErrorView(onRetry: () => pool.retry(_id)),
+            ?_paywall,
+          ],
+        ),
       ),
     );
   }

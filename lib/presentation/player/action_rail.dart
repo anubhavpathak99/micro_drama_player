@@ -78,13 +78,31 @@ class RailToggle extends StatefulWidget {
   State<RailToggle> createState() => _RailToggleState();
 }
 
-class _RailToggleState extends State<RailToggle>
-    with SingleTickerProviderStateMixin {
+class _RailToggleState extends State<RailToggle> with TickerProviderStateMixin {
   // Unbounded, so the spring can overshoot full size.
   late final AnimationController _scale = AnimationController.unbounded(
     vsync: this,
     value: 1,
   );
+
+  // Under reduced motion the icons crossfade instead: 0 shows the outline,
+  // 1 the filled icon. Preserve keeps the fade at its length when Android's
+  // Remove animations is on, rather than cutting it to a single frame.
+  late final AnimationController _fill = AnimationController(
+    vsync: this,
+    duration: MotionDurations.reducedMotionFade,
+    value: widget.active ? 1 : 0,
+    animationBehavior: AnimationBehavior.preserve,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    // Back to a single icon once a crossfade ends.
+    _fill.addStatusListener((_) {
+      if (mounted && !_fill.isAnimating) setState(() {});
+    });
+  }
 
   static const List<Shadow> _shadows = [
     Shadow(color: AppColors.scrim, blurRadius: 8),
@@ -93,7 +111,13 @@ class _RailToggleState extends State<RailToggle>
   @override
   void didUpdateWidget(RailToggle oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.active && !oldWidget.active && !context.reduceMotion) {
+    if (widget.active == oldWidget.active) return;
+    if (context.reduceMotion) {
+      unawaited(widget.active ? _fill.forward() : _fill.reverse());
+      return;
+    }
+    _fill.value = widget.active ? 1 : 0;
+    if (widget.active) {
       unawaited(
         _scale.animateWith(
           SpringSimulation(MotionSprings.bouncy, 0.7, 1, 0, snapToEnd: true),
@@ -105,19 +129,31 @@ class _RailToggleState extends State<RailToggle>
   @override
   void dispose() {
     _scale.dispose();
+    _fill.dispose();
     super.dispose();
   }
+
+  Widget _icon({required bool active}) => Icon(
+    active ? widget.activeIcon : widget.icon,
+    size: EpisodeLayout.railIcon,
+    color: active ? widget.activeColor : AppColors.onMedia,
+    shadows: _shadows,
+  );
 
   void _handleTap() {
     unawaited(Haptics.toggle());
     widget.onPressed();
   }
 
+  // The node carries its own tap: excludeSemantics also hides the gesture
+  // detector's, which screen readers need to press the button.
   @override
   Widget build(BuildContext context) => Semantics(
+    container: true,
     button: true,
     toggled: widget.active,
     label: widget.label,
+    onTap: _handleTap,
     excludeSemantics: true,
     child: GestureDetector(
       behavior: HitTestBehavior.opaque,
@@ -131,12 +167,21 @@ class _RailToggleState extends State<RailToggle>
           children: [
             ScaleTransition(
               scale: _scale,
-              child: Icon(
-                widget.active ? widget.activeIcon : widget.icon,
-                size: EpisodeLayout.railIcon,
-                color: widget.active ? widget.activeColor : AppColors.onMedia,
-                shadows: _shadows,
-              ),
+              child: _fill.isAnimating
+                  ? Stack(
+                      alignment: Alignment.center,
+                      children: [
+                        FadeTransition(
+                          opacity: ReverseAnimation(_fill),
+                          child: _icon(active: false),
+                        ),
+                        FadeTransition(
+                          opacity: _fill,
+                          child: _icon(active: true),
+                        ),
+                      ],
+                    )
+                  : _icon(active: widget.active),
             ),
             const SizedBox(height: EpisodeLayout.railLabelGap),
             SizedBox(

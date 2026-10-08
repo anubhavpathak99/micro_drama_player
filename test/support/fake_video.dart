@@ -163,6 +163,17 @@ class FakePlayerPool extends PlayerPool {
   void retry(String episodeId) => calls.add('retry $episodeId');
 
   @override
+  void beginScrub(String episodeId) => calls.add('scrub $episodeId');
+
+  @override
+  void seek(String episodeId, Duration position) =>
+      calls.add('seek $episodeId ${position.inMilliseconds}');
+
+  @override
+  Future<void> endScrub(String episodeId, Duration position) async =>
+      calls.add('end scrub $episodeId ${position.inMilliseconds}');
+
+  @override
   void suspend(SuspendReason reason) => calls.add('suspend ${reason.name}');
 
   @override

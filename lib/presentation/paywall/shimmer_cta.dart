@@ -28,12 +28,17 @@ class ShimmerCta extends StatefulWidget {
     super.key,
     required this.label,
     required this.phase,
+    this.semanticLabel,
     this.onPressed,
     this.shimmer = true,
   });
 
   final String label;
   final CtaPhase phase;
+
+  /// What assistive technologies read for the idle button, when [label]
+  /// alone leaves something out (what it unlocks, what it costs).
+  final String? semanticLabel;
 
   /// Null disables the button.
   final VoidCallback? onPressed;
@@ -161,10 +166,13 @@ class _ShimmerCtaState extends State<ShimmerCta> with TickerProviderStateMixin {
       button: true,
       enabled: widget.onPressed != null,
       label: switch (widget.phase) {
-        CtaPhase.idle => widget.label,
+        CtaPhase.idle => widget.semanticLabel ?? widget.label,
         CtaPhase.busy => 'Unlocking',
         CtaPhase.done => 'Unlocked',
       },
+      // excludeSemantics hides the gesture detector's tap, so the node
+      // carries its own for screen readers.
+      onTap: widget.onPressed,
       excludeSemantics: true,
       child: GestureDetector(
         onTapDown: _pressDown,

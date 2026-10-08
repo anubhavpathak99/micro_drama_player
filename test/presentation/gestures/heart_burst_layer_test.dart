@@ -209,15 +209,23 @@ void main() {
       await finger.doubleTap(landed);
       await finger.wait(100);
 
+      // One image per particle: the sparks, then the heart over them.
       expect(
         painter(),
-        paintsExactlyCountTimes(#drawPath, sparkCounts(1).single + 1),
+        paintsExactlyCountTimes(#drawImageRect, sparkCounts(1).single + 1),
       );
       expect(
         painter(),
         paints
-          ..shadow()
-          ..path(includes: [landed], excludes: [landed.translate(0, 120)]),
+          // Past the sparks, to the heart: centred where the finger landed.
+          ..something(
+            (method, arguments) =>
+                method == #translate &&
+                arguments[0] == landed.dx &&
+                arguments[1] == landed.dy,
+          )
+          ..rotate()
+          ..drawImageRect(),
       );
     });
 
@@ -231,7 +239,10 @@ void main() {
       await finger.wait(50);
 
       final [first, second] = sparkCounts(2);
-      expect(painter(), paintsExactlyCountTimes(#drawPath, first + second + 2));
+      expect(
+        painter(),
+        paintsExactlyCountTimes(#drawImageRect, first + second + 2),
+      );
     });
 
     testWidgets('clear away once faded, and the ticker stops', (tester) async {
@@ -243,7 +254,7 @@ void main() {
       expect(tester.hasRunningAnimations, isTrue);
 
       await finger.wait(900);
-      expect(painter(), paintsExactlyCountTimes(#drawPath, 0));
+      expect(painter(), paintsExactlyCountTimes(#drawImageRect, 0));
       expect(tester.hasRunningAnimations, isFalse);
     });
 
@@ -256,7 +267,7 @@ void main() {
       await finger.doubleTap(middle);
       await finger.wait(200);
 
-      expect(painter(), paintsExactlyCountTimes(#drawPath, 1));
+      expect(painter(), paintsExactlyCountTimes(#drawImageRect, 1));
     });
   });
 }

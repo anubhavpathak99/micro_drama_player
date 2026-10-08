@@ -5,22 +5,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_drama_interactive_player/application/feed_composer.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
+import 'package:micro_drama_interactive_player/core/analytics/analytics_service.dart';
 import 'package:micro_drama_interactive_player/data/episode_repository.dart';
 import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/domain/unlock_state.dart';
 
 import '../support/episode_fixtures.dart';
+import '../support/fake_ads.dart';
 import '../support/fake_unlocks.dart';
 import '../support/fake_video.dart';
 
 /// A container with the feed loaded and the paywall running on [unlocks].
-Future<ProviderContainer> paywallOn(FakeUnlockRepository unlocks) async {
+Future<ProviderContainer> paywallOn(
+  FakeUnlockRepository unlocks, {
+  AnalyticsService analytics = const ConsoleAnalytics(),
+}) async {
   final container = ProviderContainer.test(
     overrides: [
       episodeRepositoryProvider.overrideWithValue(
         FakeEpisodeRepository(fakeEpisodes()),
       ),
       unlockRepositoryProvider.overrideWithValue(unlocks),
+      analyticsProvider.overrideWithValue(analytics),
     ],
   );
   container.listen(paywallControllerProvider, (_, _) {});
@@ -130,6 +136,44 @@ void main() {
       expect(paywall().stateOf(premium), UnlockState.unlocked);
       expect(paywall().lockedItemId, isNull);
       expect(unlocks.unlockedIds(), {'ep-07'});
+    });
+
+    test(
+      'logs the tap at once and the success once the purchase saves',
+      () async {
+        final unlocks = FakeUnlockRepository()..purchase = Completer<void>();
+        final analytics = FakeAnalytics();
+        final container = await paywallOn(unlocks, analytics: analytics);
+
+        final unlocking = container
+            .read(paywallControllerProvider.notifier)
+            .unlock('ep-07');
+        expect(analytics.names, ['unlock_tap']);
+
+        unlocks.purchase!.complete();
+        await unlocking;
+        expect(analytics.names, ['unlock_tap', 'unlock_success']);
+        expect(analytics.parametersOf('unlock_tap'), [
+          {'episode': 'ep-07'},
+        ]);
+        expect(analytics.parametersOf('unlock_success'), [
+          {'episode': 'ep-07'},
+        ]);
+      },
+    );
+
+    test('a failed purchase logs the tap but no success', () async {
+      final unlocks = FakeUnlockRepository()..purchase = Completer<void>();
+      final analytics = FakeAnalytics();
+      final container = await paywallOn(unlocks, analytics: analytics);
+
+      final unlocking = container
+          .read(paywallControllerProvider.notifier)
+          .unlock('ep-07');
+      unlocks.purchase!.completeError(StateError('Store unavailable'));
+      await expectLater(unlocking, throwsStateError);
+
+      expect(analytics.names, ['unlock_tap']);
     });
 
     test('locks the episode again when the purchase fails', () async {

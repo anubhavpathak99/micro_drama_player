@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_drama_interactive_player/application/ad_preloader.dart';
+import 'package:micro_drama_interactive_player/application/debug_settings.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
 import 'package:micro_drama_interactive_player/core/analytics/analytics_service.dart';
 import 'package:micro_drama_interactive_player/core/env/ad_config.dart';
@@ -198,6 +199,38 @@ void main() {
       await tester.pump();
       expect(h.stateOf(firstSlot), AdSlotState.loaded);
     });
+
+    test(
+      'a forced no-fill fails each request without asking the SDK',
+      () async {
+        final h = AdHarness();
+        h.container.read(debugSettingsProvider.notifier).setForceAdNoFill(true);
+        await h.start();
+
+        expect(h.stateOf(firstSlot), AdSlotState.failed);
+        expect(h.ads.requests, 0);
+        expect(h.feedIds, isNot(contains(firstSlot)));
+        expect(h.analytics.parametersOf('ad_no_fill'), [
+          {'slot': firstSlot, 'reason': 'forced'},
+        ]);
+      },
+    );
+
+    test(
+      'forcing no-fill keeps loaded ads and fails the next request',
+      () async {
+        final h = AdHarness();
+        await h.start();
+
+        h.container.read(debugSettingsProvider.notifier).setForceAdNoFill(true);
+        await h.walk(['ep-02', 'ep-03', firstSlot, 'ep-04']);
+
+        expect(h.stateOf(firstSlot), AdSlotState.shown);
+        expect(h.stateOf(secondSlot), AdSlotState.failed);
+        expect(h.feedIds, containsAllInOrder([firstSlot, 'ep-06', 'ep-07']));
+        expect(h.feedIds, isNot(contains(secondSlot)));
+      },
+    );
 
     test('a simulated no-fill takes the same path', () async {
       final h = AdHarness();

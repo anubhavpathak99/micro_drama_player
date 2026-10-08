@@ -54,6 +54,15 @@ abstract final class EpisodeLayout {
   /// Thickness of the progress track at rest.
   static const double progressHeight = 3;
 
+  /// Thickness of the progress track while scrubbing.
+  static const double progressHeightScrubbing = 10;
+
+  /// Radius of the scrub thumb, at full size.
+  static const double scrubThumbRadius = 9;
+
+  /// Gap between the open progress track and the scrub time bubble above it.
+  static const double scrubBubbleGap = 14;
+
   /// Size of the brand mark in skeletons.
   static const double brandMark = 72;
 }

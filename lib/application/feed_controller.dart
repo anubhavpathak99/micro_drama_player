@@ -83,6 +83,15 @@ class FeedController extends AsyncNotifier<FeedState> {
     state = AsyncData(feed.withCurrent(id));
   }
 
+  /// Shows the page with [id] at once, with no scrolling in between. Used
+  /// by the debug panel. Unknown ids are ignored.
+  void jumpTo(String id) {
+    final index = state.value?.indexOf(id) ?? -1;
+    if (index < 0) return;
+    _pager?.jumpToPage(index);
+    setCurrent(id);
+  }
+
   /// Connects the page view whose pages this feed drives.
   void attachPager(FeedPager pager) => _pager = pager;
 

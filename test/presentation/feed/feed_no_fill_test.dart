@@ -22,8 +22,13 @@ import '../../support/surfaces.dart';
 
 const String firstSlot = 'ad-after-3';
 
-Future<void> pumpFeed(WidgetTester tester) async {
+Future<void> pumpFeed(WidgetTester tester, {bool reduceMotion = false}) async {
   usePhoneSurface(tester);
+  if (reduceMotion) {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+  }
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
@@ -101,5 +106,35 @@ void main() {
     expect(feedOf(tester).currentId, 'ep-05');
     expect(pageOf(tester), 4);
     expect(tester.getRect(find.byKey(const ValueKey('ep-05'))).top, 0);
+  });
+
+  testWidgets('under reduced motion the next page replaces the slot in place', (
+    tester,
+  ) async {
+    await pumpFeed(tester, reduceMotion: true);
+    await flingForward(tester, 3);
+    expect(feedOf(tester).currentId, firstSlot);
+    final pager = tester.widget<PageView>(find.byType(PageView)).controller!;
+    final pages = <double>[];
+    void record() => pages.add(pager.page!);
+    pager.addListener(record);
+    addTearDown(() => pager.removeListener(record));
+
+    containerOf(tester)
+        .read(adPreloaderProvider.notifier)
+        .simulateNoFill(firstSlot);
+    await tester.pump();
+    await tester.pump(MotionDurations.adNoFillFade);
+    await tester.pump();
+
+    expect(feedOf(tester).indexOf(firstSlot), -1);
+    expect(feedOf(tester).currentId, 'ep-04');
+    expect(pageOf(tester), 3);
+    expect(
+      pages.where((page) => page != page.roundToDouble()),
+      isEmpty,
+      reason: 'no scroll in between',
+    );
+    expect(tester.getRect(find.byKey(const ValueKey('ep-04'))).top, 0);
   });
 }
