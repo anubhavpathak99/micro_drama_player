@@ -13,12 +13,16 @@ import 'package:micro_drama_interactive_player/presentation/shared/brand_mark.da
 
 /// The brand at the top of the feed. It steps aside on ad pages, which
 /// belong to the advertiser (and keep their badges clear), and with the
-/// episode chrome while a scrub runs. In debug and profile builds a long
-/// press opens the debug panel; release builds have no panel.
+/// episode chrome while a scrub runs.
+///
+/// In debug and profile builds a long press opens the debug panel. Release
+/// builds have no panel unless built with `--dart-define=DEBUG_PANEL=true`,
+/// as review builds are.
 class FeedLogo extends ConsumerWidget {
   const FeedLogo({super.key});
 
-  static const bool _developerOptions = kDebugMode || kProfileMode;
+  static const bool _developerOptions =
+      kDebugMode || kProfileMode || bool.fromEnvironment('DEBUG_PANEL');
 
   static const List<Shadow> _shadows = [
     Shadow(color: AppColors.scrim, blurRadius: 8),

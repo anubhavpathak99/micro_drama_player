@@ -63,7 +63,11 @@ flutter analyze
 
 - **Ads:** they need no setup. Every unit id is one of Google's Ad Manager demo units, which only ever serve test ads ([ad_config.dart](lib/core/env/ad_config.dart)).
 - **Episodes:** they stream from Mixkit, so the device needs network access the first time. After that, cached episodes play from disk.
-- **Debug panel:** in debug and profile builds, long-press the **Micro Drama** logo at the top of the feed.
+- **Debug panel:** in debug and profile builds, long-press the **Micro Drama** logo at the top of the feed. Release builds include it only when built with `--dart-define=DEBUG_PANEL=true`:
+
+  ```sh
+  flutter build apk --release --dart-define=DEBUG_PANEL=true
+  ```
 - **Performance suites:** these run on a real device in profile mode. The commands are in [PERFORMANCE.md](PERFORMANCE.md), for example:
 
   ```sh
@@ -248,7 +252,7 @@ I profiled in profile mode on a OnePlus CPH2569, which has a mid-range Adreno GP
 
 ## Debug panel
 
-In debug and profile builds, long-press the logo to open the panel ([debug_panel.dart](lib/presentation/debug/debug_panel.dart)). Release builds have no panel. It offers:
+In debug and profile builds, long-press the logo to open the panel ([debug_panel.dart](lib/presentation/debug/debug_panel.dart)). Release builds have it only when built with `--dart-define=DEBUG_PANEL=true`. It offers:
 
 - **Force ad no-fill:** every ad request from then on comes back empty.
 - **Slow network:** each player waits 2 s before it initializes, which shows the loading skeleton.
