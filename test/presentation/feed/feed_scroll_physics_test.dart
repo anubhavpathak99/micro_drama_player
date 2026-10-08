@@ -15,13 +15,11 @@ void main() {
     devicePixelRatio: 3,
   );
 
-  // What PageView builds from the physics it is handed.
-  final physics = const PageScrollPhysics().applyTo(
-    const FeedPageScrollPhysics(parent: ClampingScrollPhysics()),
-  );
+  // The feed turns PageView's own snapping off, so these physics snap.
+  const physics = FeedPageScrollPhysics(parent: ClampingScrollPhysics());
 
   group('FeedPageScrollPhysics', () {
-    test("retunes PageView's own page physics to the page-snap spring", () {
+    test('snaps with the page-snap spring', () {
       expect(physics.spring, same(MotionSprings.pageSnap));
     });
 

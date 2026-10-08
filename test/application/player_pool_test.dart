@@ -4,19 +4,13 @@ import 'package:micro_drama_interactive_player/application/feed_controller.dart'
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
 import 'package:micro_drama_interactive_player/data/episode_repository.dart';
+import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/data/video_cache.dart';
 import 'package:micro_drama_interactive_player/data/video_controller_factory.dart';
-import 'package:micro_drama_interactive_player/domain/unlock_state.dart';
 
 import '../support/episode_fixtures.dart';
+import '../support/fake_unlocks.dart';
 import '../support/fake_video.dart';
-
-/// Lets a test unlock an episode, which the real paywall can't do yet.
-class TestPaywall extends PaywallController {
-  void unlock(String episodeId) => state = PaywallState(
-    unlocks: {...state.unlocks, episodeId: UnlockState.unlocked},
-  );
-}
 
 /// A container wired to fakes, with the feed loaded and the pool running.
 class PoolHarness {
@@ -29,7 +23,7 @@ class PoolHarness {
         ),
         videoControllerFactoryProvider.overrideWithValue(factory),
         videoCacheProvider.overrideWithValue(cache),
-        paywallControllerProvider.overrideWith(TestPaywall.new),
+        unlockRepositoryProvider.overrideWithValue(FakeUnlockRepository()),
       ],
     );
   }
@@ -40,8 +34,8 @@ class PoolHarness {
 
   PlayerPoolState get pool => container.read(playerPoolProvider);
   PlayerPool get players => container.read(playerPoolProvider.notifier);
-  TestPaywall get paywall =>
-      container.read(paywallControllerProvider.notifier) as TestPaywall;
+  PaywallController get paywall =>
+      container.read(paywallControllerProvider.notifier);
   List<String> get ids => [
     for (final item in container.read(feedControllerProvider).value!.items)
       item.id,
@@ -169,7 +163,7 @@ void main() {
       final h = await started();
       await h.goTo('ep-07');
 
-      h.paywall.unlock('ep-07');
+      await h.paywall.unlock('ep-07');
       await settle();
 
       expect(h.pool.activeId, 'ep-07');

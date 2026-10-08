@@ -6,11 +6,13 @@ import 'package:micro_drama_interactive_player/application/feed_controller.dart'
 import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
 import 'package:micro_drama_interactive_player/domain/feed_item.dart';
+import 'package:micro_drama_interactive_player/domain/unlock_state.dart';
 
-// Debug panel: developer view of the feed and the player pool. It is a real
-// route, so opening it also exercises pausing when the feed is covered.
+// Debug panel: developer view of the feed, the paywall and the player pool.
+// It is a real route, so opening it also exercises pausing when the feed is
+// covered.
 //
-// TODO: Add controls such as resetting the unlock and forcing an ad failure.
+// TODO: Add a control to force an ad failure.
 
 /// Small "DEV" pill that opens the [DebugPanel].
 class DebugPanelButton extends StatelessWidget {
@@ -48,6 +50,8 @@ class DebugPanel extends ConsumerWidget {
         : pool.userPaused
         ? 'Paused by user'
         : 'Normal';
+    final lockedItemId = paywall.lockedItemId;
+    final paywallActions = ref.read(paywallControllerProvider.notifier);
 
     return Scaffold(
       appBar: AppBar(title: const Text('Debug')),
@@ -58,6 +62,29 @@ class DebugPanel extends ConsumerWidget {
             trailing: Text('${pool.slots.length} / ${PlayerPool.maxPlayers}'),
           ),
           ListTile(title: const Text('Playback'), trailing: Text(playback)),
+          ListTile(
+            title: const Text('Paywall'),
+            subtitle: Text(
+              lockedItemId == null
+                  ? 'Nothing locked'
+                  : 'Feed stops at $lockedItemId',
+            ),
+            trailing: Wrap(
+              spacing: 8,
+              children: [
+                FilledButton.tonal(
+                  onPressed: lockedItemId == null
+                      ? null
+                      : () => unawaited(paywallActions.unlock(lockedItemId)),
+                  child: const Text('Unlock'),
+                ),
+                OutlinedButton(
+                  onPressed: () => unawaited(paywallActions.reset()),
+                  child: const Text('Reset'),
+                ),
+              ],
+            ),
+          ),
           const Divider(),
           for (final item in feed?.items ?? const <FeedItem>[])
             ListTile(
@@ -75,7 +102,9 @@ class DebugPanel extends ConsumerWidget {
               }),
               subtitle: Text(switch (item) {
                 EpisodeItem(:final episode) when paywall.isLocked(episode) =>
-                  'Locked: no player',
+                  paywall.stateOf(episode) == UnlockState.unlocking
+                      ? 'Unlocking…'
+                      : 'Locked: no player',
                 EpisodeItem(:final episode) => _describe(
                   pool.slots[episode.id],
                 ),

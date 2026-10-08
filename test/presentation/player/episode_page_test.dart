@@ -2,12 +2,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
+import 'package:micro_drama_interactive_player/data/episode_repository.dart';
+import 'package:micro_drama_interactive_player/data/unlock_repository.dart';
 import 'package:micro_drama_interactive_player/domain/episode.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_page.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/branded_skeleton.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/shimmer.dart';
 
 import '../../support/episode_fixtures.dart';
+import '../../support/fake_unlocks.dart';
 import '../../support/fake_video.dart';
 
 Future<FakePlayerPool> pumpEpisode(
@@ -18,7 +21,13 @@ Future<FakePlayerPool> pumpEpisode(
   final pool = FakePlayerPool(state);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [playerPoolProvider.overrideWith(() => pool)],
+      overrides: [
+        episodeRepositoryProvider.overrideWithValue(
+          FakeEpisodeRepository(fakeEpisodes()),
+        ),
+        unlockRepositoryProvider.overrideWithValue(FakeUnlockRepository()),
+        playerPoolProvider.overrideWith(() => pool),
+      ],
       child: MaterialApp(
         home: ShimmerScope(
           child: EpisodePage(episode: episode ?? fakeEpisode(1)),

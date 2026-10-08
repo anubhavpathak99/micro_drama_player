@@ -4,12 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:micro_drama_interactive_player/application/feed_controller.dart';
+import 'package:micro_drama_interactive_player/application/paywall_controller.dart';
 import 'package:micro_drama_interactive_player/application/player_pool.dart';
 import 'package:micro_drama_interactive_player/core/theme/app_theme.dart';
 import 'package:micro_drama_interactive_player/domain/feed_item.dart';
 import 'package:micro_drama_interactive_player/presentation/ads/ad_page.dart';
 import 'package:micro_drama_interactive_player/presentation/debug/debug_panel.dart';
 import 'package:micro_drama_interactive_player/presentation/feed/feed_scroll_physics.dart';
+import 'package:micro_drama_interactive_player/presentation/feed/paywall_lock_physics.dart';
 import 'package:micro_drama_interactive_player/presentation/player/episode_page.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/app_route_observer.dart';
 import 'package:micro_drama_interactive_player/presentation/shared/branded_skeleton.dart';
@@ -69,6 +71,12 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
   late Map<String, int> _indexById = _indexItems();
   ModalRoute<void>? _route;
 
+  // The physics in use and what they were built from. New instances are made
+  // only when the locked page (or the platform physics) changes.
+  ScrollPhysics? _physics;
+  ScrollPhysics? _physicsBase;
+  int? _physicsLockedPage;
+
   PlayerPool get _pool => ref.read(playerPoolProvider.notifier);
 
   @override
@@ -78,6 +86,10 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
       initialPage: ref.read(feedControllerProvider).requireValue.currentIndex,
     );
     _lifecycle = AppLifecycleListener(onStateChange: _onLifecycleChanged);
+    ref.listenManual(
+      paywallControllerProvider.select((paywall) => paywall.lockedItemId),
+      (_, lockedItemId) => _returnToLock(lockedItemId),
+    );
   }
 
   @override
@@ -133,6 +145,32 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
     return false;
   }
 
+  /// A lock that comes back (the debug reset) while the user is already past
+  /// it would leave them on unreachable pages, so jump back to it.
+  void _returnToLock(String? lockedItemId) {
+    final lockedPage = _indexById[lockedItemId];
+    final current = ref.read(feedControllerProvider).value?.currentIndex;
+    if (lockedPage == null || current == null || current <= lockedPage) return;
+    if (_pages.hasClients) _pages.jumpToPage(lockedPage);
+  }
+
+  /// Page physics for the current lock: paging with the feed's snap spring,
+  /// plus a barrier at [lockedPage] while there is one.
+  ScrollPhysics _physicsFor(int? lockedPage) {
+    final base = ScrollConfiguration.of(context).getScrollPhysics(context);
+    if (_physics == null ||
+        lockedPage != _physicsLockedPage ||
+        !identical(base, _physicsBase)) {
+      final paging = const FeedPageScrollPhysics().applyTo(base);
+      _physics = lockedPage == null
+          ? paging
+          : PaywallLockPhysics(lockedPage: lockedPage).applyTo(paging);
+      _physicsBase = base;
+      _physicsLockedPage = lockedPage;
+    }
+    return _physics!;
+  }
+
   /// Decodes posters two pages ahead and behind, so a page never shows up
   /// before its poster does.
   void _precacheAround(int index) {
@@ -147,15 +185,26 @@ class _FeedPagerState extends ConsumerState<_FeedPager> with RouteAware {
   @override
   Widget build(BuildContext context) {
     final items = widget.items;
+    // Recomputed every build: removing an ad shifts the locked page's index.
+    final lockedItemId = ref.watch(
+      paywallControllerProvider.select((paywall) => paywall.lockedItemId),
+    );
+    final physics = _physicsFor(_indexById[lockedItemId]);
     return NotificationListener<ScrollEndNotification>(
       onNotification: _onScrollEnd,
       child: PageView.custom(
         controller: _pages,
         scrollDirection: Axis.vertical,
         allowImplicitScrolling: true,
-        physics: const FeedPageScrollPhysics().applyTo(
-          ScrollConfiguration.of(context).getScrollPhysics(context),
-        ),
+        // The feed physics snap pages themselves. PageView's own snapping
+        // would wrap them and bypass the paywall's fling handling.
+        pageSnapping: false,
+        physics: physics,
+        // Scrollable keeps its position, and with it the old physics, when
+        // only the physics' configuration changes. The behaviour compares
+        // physics instances, so a moved lock does take effect.
+        scrollBehavior: ScrollConfiguration.of(context)
+            .copyWith(scrollbars: false, physics: physics),
         onPageChanged: _onPageChanged,
         childrenDelegate: SliverChildBuilderDelegate(
           (context, index) =>

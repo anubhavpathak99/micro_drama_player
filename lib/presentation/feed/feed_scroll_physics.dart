@@ -5,9 +5,9 @@ import 'package:micro_drama_interactive_player/core/motion/motion_tokens.dart';
 /// Flutter's default page spring and critically damped, so a swipe lands
 /// fast and never peeks past the page edge.
 ///
-/// PageView wraps the physics it is given in its own [PageScrollPhysics].
-/// That one asks its parent for the spring, so overriding [spring] here is
-/// enough to retune every page settle.
+/// The feed's PageView turns its own page snapping off, so these physics do
+/// the snapping. Physics stacked on top, such as the paywall lock, ask their
+/// parent for the spring and therefore settle with this one too.
 class FeedPageScrollPhysics extends PageScrollPhysics {
   const FeedPageScrollPhysics({super.parent});
 
