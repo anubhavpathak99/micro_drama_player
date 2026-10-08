@@ -1,0 +1,94 @@
+{
+  "episodes": [
+    {
+      "id": "ep-01",
+      "number": 1,
+      "title": "Back in the City",
+      "videoUrl": "https://assets.mixkit.co/videos/1227/1227-720.mp4",
+      "poster": "assets/posters/ep-01.jpg",
+      "durationMs": 12970,
+      "premium": false
+    },
+    {
+      "id": "ep-02",
+      "number": 2,
+      "title": "The Midnight Call",
+      "videoUrl": "https://assets.mixkit.co/videos/1793/1793-720.mp4",
+      "poster": "assets/posters/ep-02.jpg",
+      "durationMs": 10635,
+      "premium": false
+    },
+    {
+      "id": "ep-03",
+      "number": 3,
+      "title": "Neon Confessions",
+      "videoUrl": "https://assets.mixkit.co/videos/1232/1232-720.mp4",
+      "poster": "assets/posters/ep-03.jpg",
+      "durationMs": 12012,
+      "premium": false
+    },
+    {
+      "id": "ep-04",
+      "number": 4,
+      "title": "Omen",
+      "videoUrl": "https://assets.mixkit.co/videos/1546/1546-720.mp4",
+      "poster": "assets/posters/ep-04.jpg",
+      "durationMs": 10052,
+      "premium": false
+    },
+    {
+      "id": "ep-05",
+      "number": 5,
+      "title": "Smoke and Secrets",
+      "videoUrl": "https://assets.mixkit.co/videos/1965/1965-720.mp4",
+      "poster": "assets/posters/ep-05.jpg",
+      "durationMs": 12542,
+      "premium": false
+    },
+    {
+      "id": "ep-06",
+      "number": 6,
+      "title": "Under the Same Moon",
+      "videoUrl": "https://assets.mixkit.co/videos/1938/1938-720.mp4",
+      "poster": "assets/posters/ep-06.jpg",
+      "durationMs": 12012,
+      "premium": false
+    },
+    {
+      "id": "ep-07",
+      "number": 7,
+      "title": "The Burning Diary",
+      "videoUrl": "https://assets.mixkit.co/videos/52295/52295-720.mp4",
+      "poster": "assets/posters/ep-07.jpg",
+      "durationMs": 19167,
+      "premium": true
+    },
+    {
+      "id": "ep-08",
+      "number": 8,
+      "title": "What the Tide Remembers",
+      "videoUrl": "https://assets.mixkit.co/videos/1224/1224-720.mp4",
+      "poster": "assets/posters/ep-08.jpg",
+      "durationMs": 19143,
+      "premium": false
+    },
+    {
+      "id": "ep-09",
+      "number": 9,
+      "title": "Still Water",
+      "videoUrl": "https://assets.mixkit.co/videos/1259/1259-720.mp4",
+      "poster": "assets/posters/ep-09.jpg",
+      "durationMs": 14930,
+      "premium": false
+    },
+    {
+      "id": "ep-10",
+      "number": 10,
+      "title": "Walking Into the Sun",
+      "videoUrl": "https://assets.mixkit.co/videos/1214/1214-720.mp4",
+      "poster": "assets/posters/ep-10.jpg",
+      "durationMs": 12012,
+      "premium": false
+    }
+  ]
+}

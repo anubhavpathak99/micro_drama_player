@@ -1,0 +1,32 @@
+name: micro_drama_interactive_player
+description: "Vertical micro-drama feed with interleaved Ad Manager ads and a paywalled episode."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.13.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_cache_manager: ^3.4.5
+  flutter_riverpod: ^3.4.3
+  google_mobile_ads: ^9.1.0
+  shared_preferences: ^2.5.6
+  video_player: ^2.14.1
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  mocktail: ^1.0.5
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/episodes.json
+    # First frame of each episode, bundled so posters (and the paywall
+    # backdrop) never wait on the network.
+    - assets/posters/
